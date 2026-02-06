@@ -38,12 +38,18 @@ const DEFAULT_TIMEOUT_MS = 300000;
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+let cachedTransferServerUrl: string | undefined;
+
 const getTransferServerUrl = async (config: Config): Promise<string> => {
+  if (cachedTransferServerUrl) {
+    return cachedTransferServerUrl;
+  }
   const toml = await fetchToml(config.moneygramDomain);
   if (!toml.TRANSFER_SERVER_SEP0024) {
     throw new Error("TRANSFER_SERVER_SEP0024 not found in anchor TOML");
   }
-  return toml.TRANSFER_SERVER_SEP0024;
+  cachedTransferServerUrl = toml.TRANSFER_SERVER_SEP0024;
+  return cachedTransferServerUrl;
 };
 
 const getBridgePublicKey = (config: Config): string =>
@@ -86,7 +92,7 @@ export const initiateDeposit = async (
 
   const data = (await response.json()) as InteractiveResponse;
   log("Deposit initiated. Transaction ID:", data.id);
-  log("Interactive URL:", data.url);
+  log("Interactive URL:", data.url.replace(/ /g, "%20"));
   return data;
 };
 
@@ -127,7 +133,7 @@ export const initiateWithdrawal = async (
 
   const data = (await response.json()) as InteractiveResponse;
   log("Withdrawal initiated. Transaction ID:", data.id);
-  log("Interactive URL:", data.url);
+  log("Interactive URL:", data.url.replace(/ /g, "%20"));
   return data;
 };
 
