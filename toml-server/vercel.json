@@ -1,0 +1,19 @@
+{
+  "buildCommand": "",
+  "installCommand": "",
+  "framework": null,
+  "routes": [
+    {
+      "src": "/.well-known/stellar.toml",
+      "dest": "/src/index.ts"
+    },
+    {
+      "src": "/health",
+      "dest": "/src/index.ts"
+    },
+    {
+      "src": "/",
+      "dest": "/src/index.ts"
+    }
+  ]
+}
