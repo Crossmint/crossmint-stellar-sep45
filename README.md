@@ -42,7 +42,7 @@ This POC uses the **Bridge Account Pattern** (Option B). A local Ed25519 keypair
 
 **Why a bridge account?** Three constraints require it:
 
-1. SEP-10 authentication only accepts G... (Ed25519) addresses, not C... (Soroban contract) addresses
+1. [SEP-10](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md) authentication only accepts G... (Ed25519) addresses, not C... (Soroban contract) addresses
 2. Crossmint does not expose an API to sign arbitrary Stellar XDR (needed for SEP-10 challenges)
 3. MoneyGram sends USDC via classic payment operations, which cannot target C... addresses
 
@@ -91,7 +91,8 @@ deno task cli setup
 ### 5. Create a Crossmint smart wallet
 
 ```bash
-deno task cli wallet
+# Use --key for idempotent creation (same key = same wallet)
+deno task cli wallet --key "my-user-wallet"
 ```
 
 ### 6. Authenticate with MoneyGram
@@ -113,10 +114,13 @@ All commands are run via `deno task cli <command> [options]`.
 
 ### wallet
 
-Create a new Crossmint smart wallet or retrieve an existing one.
+Create a new Crossmint smart wallet or retrieve an existing one. Use `--key` for idempotent creation (same key always returns the same wallet).
 
 ```bash
-# Create a new wallet
+# Create a new wallet (idempotent with --key)
+deno task cli wallet --key "my-user-wallet"
+
+# Create a new wallet (no idempotency, creates a new wallet each time)
 deno task cli wallet
 
 # Retrieve an existing wallet by locator
@@ -133,7 +137,7 @@ deno task cli setup
 
 ### auth
 
-Authenticate with the MoneyGram anchor using SEP-10 challenge-response. The resulting JWT is saved to `.auth-token` for subsequent commands.
+Authenticate with the MoneyGram anchor using [SEP-10](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md) challenge-response. The resulting JWT is saved to `.auth-token` for subsequent commands.
 
 ```bash
 deno task cli auth
@@ -141,7 +145,7 @@ deno task cli auth
 
 ### deposit
 
-Initiate a cash-to-USDC deposit via SEP-24. Opens an interactive URL for KYC completion. Polls for completion automatically.
+Initiate a cash-to-USDC deposit via [SEP-24](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md). Opens an interactive URL for KYC completion. Polls for completion automatically.
 
 ```bash
 deno task cli deposit --amount 100
@@ -257,6 +261,16 @@ crossmint-moneygram-ramp/
 
 ## Further Reading
 
+- [Getting Started](docs/GETTING_STARTED.md) - Step-by-step setup guide (Crossmint, Vercel, MoneyGram onboarding)
 - [Architecture Decision](docs/ARCHITECTURE_DECISION.md) - Why the bridge account pattern was chosen
 - [Cross-Chain Expansion](docs/CROSS_CHAIN.md) - Extending the pattern to EVM and Solana
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and fixes
+
+## Stellar Protocol References
+
+- [SEP-1: stellar.toml](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0001.md) - Service discovery
+- [SEP-10: Web Authentication](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md) - Challenge-response auth
+- [SEP-24: Interactive Deposit/Withdrawal](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md) - Anchor deposit/withdrawal
+- [SEP-45: Contract Account Auth](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md) - Draft spec for Soroban wallets
+- [MoneyGram Developer Docs](https://developer.moneygram.com/moneygram-developer/docs/integrate-moneygram-ramps) - Integration guide
+- [Crossmint API Docs](https://docs.crossmint.com/api-reference/wallets/create-wallet) - Wallet management API

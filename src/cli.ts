@@ -52,6 +52,7 @@ Options:
   --amount     Amount for deposit/withdraw
   --id         Transaction ID for status check
   --locator    Wallet locator (email:user@example.com or address) for wallet command
+  --key        Idempotency key for wallet creation (reuse to get the same wallet)
 `);
 };
 
@@ -84,7 +85,8 @@ const handleWallet = async (
       console.log("Admin signer (G...):", wallet.config.adminSigner.address);
     }
   } else {
-    const wallet = await createWallet(config);
+    const idempotencyKey = args.key as string | undefined;
+    const wallet = await createWallet(config, idempotencyKey);
     console.log("Wallet address (C...):", wallet.address);
     if (wallet.config?.adminSigner) {
       console.log("Admin signer (G...):", wallet.config.adminSigner.address);
@@ -240,7 +242,7 @@ const handleBalance = async (): Promise<void> => {
 
 const main = async (): Promise<void> => {
   const args = parseArgs(Deno.args, {
-    string: ["amount", "id", "locator"],
+    string: ["amount", "id", "locator", "key"],
     boolean: ["help"],
     default: {
       help: false,

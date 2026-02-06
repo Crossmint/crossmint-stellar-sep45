@@ -4,6 +4,16 @@
 **Status**: Accepted
 **Decision**: Use a local Ed25519 bridge account as intermediary between MoneyGram and Crossmint smart wallets.
 
+## References
+
+- [SEP-10: Web Authentication](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md) - Challenge-response auth for Stellar anchors
+- [SEP-24: Interactive Deposit/Withdrawal](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md) - Anchor deposit/withdrawal protocol
+- [SEP-45: Contract Account Authentication](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md) - Draft spec for Soroban contract auth (not yet supported by MoneyGram)
+- [SEP-1: stellar.toml](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0001.md) - Service discovery via TOML files
+- [Crossmint Wallets API](https://docs.crossmint.com/api-reference/wallets/create-wallet) - Smart wallet creation and management
+- [MoneyGram Access Ramps Integration Guide](https://developer.moneygram.com/moneygram-developer/docs/integrate-moneygram-ramps) - MoneyGram on/off-ramp integration
+- [MoneyGram Stellar Developer Guide](https://developer.moneygram.com/moneygram-developer/docs/stellar-developers-guide) - Stellar-specific integration details
+
 ## Investigation Summary
 
 Three critical questions were investigated across the crossmint-main and crossmint-sdk repositories, the SEP-10/SEP-24 specifications, and MoneyGram's anchor configuration.
@@ -52,10 +62,10 @@ This means we cannot use Crossmint to sign SEP-10 challenge transactions.
 
 Two separate findings:
 
-1. **SEP-10 authentication**: Does NOT accept C... addresses at all. Only G... and M... addresses are supported. SEP-45 (contract account auth) is in DRAFT status and MoneyGram does not implement it.
+1. **SEP-10 authentication**: Does NOT accept C... addresses at all. Only G... and M... addresses are supported per the [SEP-10 spec](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md). [SEP-45](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md) (contract account auth) is in DRAFT status and MoneyGram does not implement it.
    - MoneyGram's TOML has no `WEB_AUTH_FOR_CONTRACTS_ENDPOINT`
 
-2. **SEP-24 deposits**: The spec explicitly accepts C... addresses in the `account` field. However, MoneyGram's actual deposit implementation likely uses classic `payment` operations which can only target G... addresses. Classic payment operations cannot target Soroban contract (C...) addresses.
+2. **SEP-24 deposits**: The [SEP-24 spec](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md) explicitly accepts C... addresses in the `account` field. However, MoneyGram's actual deposit implementation likely uses classic `payment` operations which can only target G... addresses. Classic payment operations cannot target Soroban contract (C...) addresses.
 
 3. **Crossmint's detection**: Monitors incoming transfers via Goldsky webhooks for SAC contract events, not classic payments. No proxy/relay mechanism exists between G... and C... addresses.
 
@@ -147,8 +157,8 @@ If MoneyGram sandbox is not accessible, use `testanchor.stellar.org`:
 ## Future: Eliminating the Bridge Account
 
 The bridge account can be eliminated when:
-1. Crossmint adds a "sign raw XDR" or "sign arbitrary bytes" API for Stellar, AND
-2. MoneyGram implements SEP-45 (contract account authentication), AND
+1. Crossmint adds a "sign raw XDR" or "sign arbitrary bytes" API for Stellar ([Crossmint docs](https://docs.crossmint.com/api-reference/wallets/create-wallet)), AND
+2. MoneyGram implements [SEP-45](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md) (contract account authentication), AND
 3. MoneyGram's deposit system supports SAC transfers to C... addresses
 
 At that point, the architecture shifts to Option A where the Crossmint smart wallet handles everything directly.
