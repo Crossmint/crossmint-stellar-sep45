@@ -208,13 +208,41 @@ Reference: [SEP-10 Web Authentication](https://github.com/stellar/stellar-protoc
 ### Deposit (Cash to USDC)
 
 ```bash
-deno task cli deposit --amount 100
+deno task cli deposit --amount 10
 ```
 
 1. Initiates an interactive SEP-24 deposit
 2. Prints a URL for KYC completion in the MoneyGram webview
 3. After KYC + cash deposit at a MoneyGram location, USDC is sent to the bridge account
 4. CLI polls for completion automatically
+
+#### Example: Successful Deposit (SDF Test Anchor)
+
+![Successful SEP-24 deposit showing 10 USD sent, 9 USDC received, 1 USD fee](images/sep24-deposit-success.png)
+
+The screenshot above shows a completed deposit against the SDF reference anchor:
+
+| Field | Value |
+|---|---|
+| Transaction Type | deposit |
+| Send Amount | 10 USD |
+| Receive Amount | 9.0 USDC |
+| Fee Amount | 1.0 USD |
+| Transaction Status | completed |
+| Destination Account | GDW3HKJS3OB4TDPMZNX2CAIAOLGSZOQTOSWECCHBDGH7U7JTITPBMA3I (bridge) |
+
+After the deposit completes, check your bridge account balance:
+
+```bash
+deno task cli balance
+```
+
+Expected output:
+```
+Bridge account: GDW3HKJS3OB4TDPMZNX2CAIAOLGSZOQTOSWECCHBDGH7U7JTITPBMA3I
+  USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5: 9.0000000
+  XLM: 9999.9999900
+```
 
 ### Withdraw (USDC to Cash)
 
