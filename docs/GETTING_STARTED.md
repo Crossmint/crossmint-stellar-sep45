@@ -180,13 +180,7 @@ Reference: [MoneyGram Access Ramps Integration Guide](https://developer.moneygra
 
 ### While waiting for MoneyGram approval
 
-You can test the full SEP-10/SEP-24 flow against the SDF reference anchor:
-
-1. Set `MONEYGRAM_DOMAIN=testanchor.stellar.org` in your `.env`
-2. Run `deno task cli auth` to test SEP-10 authentication
-3. Run `deno task cli deposit --amount 10` to test SEP-24 deposit flow
-
-The SDF test anchor supports full SEP-10 and SEP-24 on testnet with no onboarding required.
+You can test the full SEP-10/SEP-24 flow against the SDF reference anchor without any onboarding. Just prefix commands with `MONEYGRAM_DOMAIN="testanchor.stellar.org"` or set it in your `.env`. See [Step 10: Deposit and Withdraw](#step-10-deposit-and-withdraw) for the full walkthrough with screenshots.
 
 ## Step 9: Authenticate with MoneyGram
 
@@ -216,15 +210,30 @@ deno task cli deposit --amount 10
 ```
 
 1. Initiates an interactive SEP-24 deposit
-2. Prints a URL for KYC completion in the MoneyGram webview
-3. After KYC + cash deposit at a MoneyGram location, USDC is sent to the bridge account
+2. Prints a URL for KYC completion in the anchor's webview
+3. After KYC + cash deposit, USDC is sent to the bridge account
 4. CLI polls for completion automatically
 
-#### Example: Successful Deposit (SDF Test Anchor)
+#### How it works without MoneyGram
+
+You can test the full deposit flow using the [SDF reference anchor](https://testanchor.stellar.org) (`testanchor.stellar.org`) without any MoneyGram onboarding. The SDF anchor implements the same SEP-10/SEP-24 protocol but uses a simplified KYC form instead of real identity verification:
+
+```bash
+MONEYGRAM_DOMAIN="testanchor.stellar.org" deno task cli auth
+MONEYGRAM_DOMAIN="testanchor.stellar.org" deno task cli deposit --amount 10
+```
+
+The CLI prints an interactive URL. Open it in your browser to see the test KYC form:
+
+![SDF test anchor KYC form with amount, name, and email fields](images/sep24-kyc-form.png)
+
+Fill in any test data and submit. The anchor simulates the deposit: it sends testnet USDC to your bridge account just like MoneyGram would after a real cash deposit. The CLI detects the status change and completes automatically.
+
+#### Example: Successful Deposit
 
 ![Successful SEP-24 deposit showing 10 USD sent, 9 USDC received, 1 USD fee](images/sep24-deposit-success.png)
 
-The screenshot above shows a completed deposit against the SDF reference anchor:
+The screenshot above shows a completed deposit:
 
 | Field | Value |
 |---|---|
