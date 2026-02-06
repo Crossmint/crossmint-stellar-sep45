@@ -22,16 +22,16 @@ The current POC operates exclusively on Stellar, using a bridge account (G... Ed
 
 Crossmint supports creating wallets on multiple chains from a single API. The wallet type parameter determines the target chain:
 
-| Chain | Wallet Type | Address Format |
-|---|---|---|
-| Stellar | `stellar-smart-wallet` | C... (Soroban contract) |
-| Ethereum / EVM | `evm-smart-wallet` | 0x... |
-| Solana | `solana-smart-wallet` | Base58 |
+| Chain | `chainType` | `type` | Address Format |
+|---|---|---|---|
+| Stellar | `stellar` | `smart` | C... (Soroban contract) |
+| Ethereum / EVM | `evm` | `smart` | 0x... |
+| Solana | `solana` | `smart` | Base58 |
 
 The API surface is identical across chains:
 
 ```
-POST   /wallets                        Create wallet (specify type in body)
+POST   /wallets                        Create wallet (specify chainType + type in body)
 GET    /wallets/{locator}              Retrieve wallet details
 GET    /wallets/{locator}/balances     Query token balances
 POST   /wallets/{locator}/transfers   Transfer tokens
@@ -43,7 +43,7 @@ A single Crossmint API key can manage wallets across all supported chains. The s
 
 ### What changes
 
-1. **Wallet creation**: Change the type from `stellar-smart-wallet` to `evm-smart-wallet`
+1. **Wallet creation**: Change `chainType` from `"stellar"` to `"evm"`
 2. **On-ramp destination**: Instead of relaying USDC from the Stellar bridge account to a C... address, the flow would deposit USDC into an EVM wallet address (0x...)
 3. **Off-ramp source**: Withdraw USDC from the EVM wallet, bridge to Stellar USDC, then send to the MoneyGram anchor
 
@@ -85,7 +85,7 @@ Moving USDC between Stellar and EVM requires a cross-chain bridge. Options inclu
 
 ### What changes
 
-1. **Wallet creation**: Change the type to `solana-smart-wallet`
+1. **Wallet creation**: Change `chainType` from `"stellar"` to `"solana"`
 2. **USDC variant**: Solana uses SPL USDC (native to Solana), not Stellar classic USDC
 3. **Cross-chain bridge**: Need a Stellar-to-Solana USDC bridge
 
