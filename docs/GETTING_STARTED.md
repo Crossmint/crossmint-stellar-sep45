@@ -163,14 +163,18 @@ MoneyGram's Stellar sandbox requires partner onboarding. Submit the self-service
 
 1. Go to [MoneyGram Access Ramps Developer Portal](https://developer.moneygram.com/)
 2. Navigate to the onboarding/integration section
-3. Fill in the form with:
-   - **Email**: robin@paella.dev
+3. Verify your TOML file using the [Stellar TOML Checker](https://stellar.sui.li/) before submitting
+4. Fill in the form with:
+   - **Is your wallet on the Stellar blockchain?** Yes
+   - **Environment**: Sandbox (Testnet)
+   - **Wallet Type**: Non-Custodial Wallet
+   - **Email Address**: robin@paella.dev
    - **Wallet Name**: Crossmint MoneyGram Ramp
-   - **Wallet Domain**: your Vercel domain (e.g., `your-app.vercel.app`)
-   - **Environment**: Sandbox
-   - **Wallet Type**: Non-Custodial
+   - **Wallet Domain**: your Vercel domain (e.g., `crossmint-moneygram-ramp.vercel.app`)
 
-MoneyGram will allowlist your bridge account's G... public key for sandbox access.
+![MoneyGram Ramps onboarding form](images/moneygram-onboarding-form.png)
+
+MoneyGram will allowlist your wallet domain for sandbox access. If the self-service form returns an error, email MGRamps@moneygram.com with your details and TOML URL.
 
 Reference: [MoneyGram Access Ramps Integration Guide](https://developer.moneygram.com/moneygram-developer/docs/integrate-moneygram-ramps)
 
