@@ -7,5 +7,14 @@
       "source": "/(.*)",
       "destination": "/api/index"
     }
+  ],
+  "headers": [
+    {
+      "source": "/.well-known/stellar.toml",
+      "headers": [
+        { "key": "Content-Encoding", "value": "identity" },
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" }
+      ]
+    }
   ]
 }

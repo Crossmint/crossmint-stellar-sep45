@@ -81,6 +81,22 @@ Look for `Access-Control-Allow-Origin: *` in the response headers.
 ### SIGNING_KEY does not match CLIENT_SIGNING_SEED
 The `TOML_SIGNING_KEY` environment variable on the Vercel deployment must be set to the G... public key derived from the same seed as `CLIENT_SIGNING_SEED` in your `.env`. If these do not match, SEP-10 client_domain verification will fail.
 
+### MoneyGram rejects TOML with "Unsupported Encoding br"
+MoneyGram's onboarding server cannot handle Brotli-compressed responses. When their server fetches your TOML, it sends `Accept-Encoding: br` but their upstream proxy (Apigee) fails to decode it:
+
+```
+Unsupported Encoding "br"
+org.stellar.anchor.exception.SepException: Failed to read toml file
+```
+
+The TOML server's Edge Function sets `Content-Encoding: identity` to prevent Vercel CDN from compressing the response. If you still see this error, verify the header is present:
+
+```bash
+curl -sI -H "Accept-Encoding: br" https://<your-domain>/.well-known/stellar.toml | grep -i encoding
+```
+
+Expected: `content-encoding: identity`. If you see `content-encoding: br` instead, redeploy the TOML server so the latest `vercel.json` headers config takes effect.
+
 ### Vercel deployment not updated
 After changing environment variables on Vercel, redeploy the TOML server for changes to take effect. Vercel environment variables are injected at build/deploy time.
 
