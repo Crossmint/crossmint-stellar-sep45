@@ -4,7 +4,7 @@ This document describes how to extend the MoneyGram bridge account pattern to ot
 
 ## Overview
 
-The current POC operates exclusively on Stellar, using a bridge account (G... Ed25519 keypair) to interface with MoneyGram's SEP-10/SEP-24 anchor protocol. While the anchor protocol is Stellar-specific, the wallet management layer provided by Crossmint is chain-agnostic. This creates a natural separation point for multi-chain expansion.
+The current POC operates exclusively on Stellar, using a bridge account (G... Ed25519 keypair) to interface with MoneyGram's [SEP-10](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md)/[SEP-24](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md) anchor protocol. While the anchor protocol is Stellar-specific, the wallet management layer provided by [Crossmint](https://docs.crossmint.com/api-reference/wallets/create-wallet) is chain-agnostic. This creates a natural separation point for multi-chain expansion.
 
 **Stellar-specific components** (cannot be reused across chains):
 - SEP-10 challenge-response authentication
@@ -77,7 +77,7 @@ User requests withdrawal
 
 Moving USDC between Stellar and EVM requires a cross-chain bridge. Options include:
 
-- **Circle CCTP (Cross-Chain Transfer Protocol)**: Native USDC bridge operated by Circle. Supports Ethereum, Avalanche, Arbitrum, and other EVM chains. Does not currently support Stellar directly, so an intermediate chain hop may be needed.
+- **[Circle CCTP](https://www.circle.com/en/cross-chain-transfer-protocol) (Cross-Chain Transfer Protocol)**: Native USDC bridge operated by Circle. Supports Ethereum, Avalanche, Arbitrum, and other EVM chains. Does not currently support Stellar directly, so an intermediate chain hop may be needed.
 - **Stellar/Soroban DEX bridges**: As the Soroban ecosystem matures, bridge protocols may support direct Stellar-to-EVM transfers.
 - **Centralized exchange relay**: Deposit Stellar USDC to an exchange, withdraw as EVM USDC. Simple but introduces counterparty risk and KYC requirements.
 
@@ -158,8 +158,8 @@ A generalized architecture would look like:
 
 The bridge account exists because Crossmint cannot currently sign arbitrary Stellar XDR. When Crossmint adds this capability, the architecture simplifies significantly:
 
-1. **Crossmint signs SEP-10 challenges directly** using the admin signer's Ed25519 key
-2. **MoneyGram sends USDC to the smart wallet** (requires MoneyGram to support C... addresses or SEP-45)
+1. **Crossmint signs [SEP-10](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md) challenges directly** using the admin signer's Ed25519 key
+2. **MoneyGram sends USDC to the smart wallet** (requires MoneyGram to support C... addresses or [SEP-45](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md))
 3. **No bridge account needed** for Stellar-native flows
 
 For cross-chain flows, the bridge account may still be useful as an intermediate staging area, even after Crossmint adds arbitrary signing. The bridge provides a clean separation between the anchor protocol (Stellar-specific) and the destination chain.
@@ -168,9 +168,9 @@ For cross-chain flows, the bridge account may still be useful as an intermediate
 
 | Capability | Status | Impact |
 |---|---|---|
-| Crossmint arbitrary XDR signing for Stellar | Not available | Blocks bridge elimination |
-| MoneyGram SEP-45 support (contract accounts) | SEP-45 is draft | Blocks direct C... address deposits |
-| Circle CCTP Stellar support | Not available | Would simplify cross-chain USDC transfers |
+| Crossmint arbitrary XDR signing for Stellar | Not available | Blocks bridge elimination ([docs](https://docs.crossmint.com/api-reference/wallets/create-wallet)) |
+| MoneyGram [SEP-45](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md) support | SEP-45 is draft | Blocks direct C... address deposits |
+| [Circle CCTP](https://www.circle.com/en/cross-chain-transfer-protocol) Stellar support | Not available | Would simplify cross-chain USDC transfers |
 | Crossmint cross-chain transfer API | Available for some chains | Could abstract bridge complexity |
 
 ## Summary

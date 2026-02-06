@@ -2,6 +2,8 @@
 
 Common issues and their solutions when working with the MoneyGram x Crossmint Stellar integration.
 
+For setup instructions, see [Getting Started](GETTING_STARTED.md). For architecture context, see [Architecture Decision](ARCHITECTURE_DECISION.md).
+
 ## Module Not Found Errors
 
 **Symptom**: Deno reports `Module not found` or `Cannot resolve module` when running CLI commands.
@@ -45,7 +47,7 @@ The anchor may reject the challenge if the account does not exist on the Stellar
 Some anchors verify that the account has a USDC trustline before issuing a JWT. Run `deno task cli setup` to ensure the trustline exists.
 
 ### client_domain TOML not accessible
-If `CLIENT_DOMAIN` is set, the anchor fetches `https://<CLIENT_DOMAIN>/.well-known/stellar.toml` to verify the client_domain signing key. Ensure:
+If `CLIENT_DOMAIN` is set, the anchor fetches `https://<CLIENT_DOMAIN>/.well-known/stellar.toml` (per [SEP-1](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0001.md)) to verify the client_domain signing key. Ensure:
 - The TOML server is deployed and accessible at the configured domain
 - The `TOML_SIGNING_KEY` environment variable on the server matches the public key derived from `CLIENT_SIGNING_SEED`
 - CORS headers are present (the Hono app includes `cors()` middleware)
@@ -106,11 +108,11 @@ curl http://localhost:8000/health
 If MoneyGram sandbox access is not yet available, you can test the SEP-10/SEP-24 flow against the SDF reference anchor:
 
 1. Set `MONEYGRAM_DOMAIN=testanchor.stellar.org` in your `.env`
-2. The SDF test anchor supports full SEP-10 and SEP-24 flows on testnet
+2. The SDF test anchor supports full [SEP-10](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md) and [SEP-24](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md) flows on testnet
 3. Its signing key is `GCHLHDBOKG2JWMJQBTLSL5XG6NO7ESXI2TAQKZXCXWXB5WI2X6W233PR`
 4. It uses the same testnet USDC issuer
 
-Note: The SDF test anchor also supports SEP-45 (contract account auth), which MoneyGram does not yet support.
+Note: The SDF test anchor also supports [SEP-45](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md) (contract account auth), which MoneyGram does not yet support.
 
 ## Account Not Found
 
@@ -190,7 +192,7 @@ Your API key may not have permissions for Stellar wallet operations. Check the k
 The `fetchWithRetry` utility automatically retries on 5xx errors with exponential backoff (3 retries, starting at 1 second). If all retries fail, the error is a persistent server-side issue. Wait and try again later.
 
 ### Wrong base URL
-Ensure `CROSSMINT_BASE_URL` uses the correct API version. The current version is `https://staging.crossmint.com/api/2025-06-09`. Using an outdated version path will result in 404 errors.
+Ensure `CROSSMINT_BASE_URL` uses the correct API version. The current version is `https://staging.crossmint.com/api/2025-06-09`. Using an outdated version path will result in 404 errors. See [Crossmint API docs](https://docs.crossmint.com/api-reference/wallets/create-wallet) for the latest version.
 
 ## SAC Transfer to C... Addresses Not Implemented
 

@@ -28,15 +28,33 @@ const buildHeaders = (config: Config): Record<string, string> => ({
   "Content-Type": "application/json",
 });
 
+/**
+ * Create a Stellar smart wallet. This call is idempotent: passing the same
+ * idempotencyKey returns the existing wallet (HTTP 200) instead of creating
+ * a duplicate (HTTP 201). When no key is provided, every call creates a new
+ * wallet.
+ *
+ * The x-idempotency-key header is combined with the project ID server-side
+ * to form the composite key: stellar-smart-wallet-create-{projectId}-{key}.
+ * For user-linked wallets, pass an `owner` field instead (the owner itself
+ * guarantees idempotency and cannot be combined with the header).
+ */
 export const createWallet = async (
   config: Config,
+  idempotencyKey?: string,
 ): Promise<CrossmintWallet> => {
   const url = `${config.crossmintBaseUrl}/wallets`;
   log("Creating Crossmint Stellar smart wallet...");
 
+  const headers: Record<string, string> = buildHeaders(config);
+  if (idempotencyKey) {
+    headers["x-idempotency-key"] = idempotencyKey;
+    log("Using idempotency key:", idempotencyKey);
+  }
+
   const response = await fetchWithRetry(url, {
     method: "POST",
-    headers: buildHeaders(config),
+    headers,
     body: JSON.stringify({
       type: "stellar-smart-wallet",
       config: {
@@ -52,7 +70,11 @@ export const createWallet = async (
   }
 
   const wallet = (await response.json()) as CrossmintWallet;
-  log("Wallet created:", wallet.address);
+  const wasCreated = response.status === 201;
+  log(
+    wasCreated ? "Wallet created:" : "Existing wallet returned:",
+    wallet.address,
+  );
   return wallet;
 };
 
