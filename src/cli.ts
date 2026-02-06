@@ -131,9 +131,10 @@ const handleDeposit = async (
   const amount = args.amount as string | undefined;
 
   const result = await initiateDeposit(config, token, amount);
+  const encodedUrl = result.url.replace(/ /g, "%20");
   console.log("Deposit initiated.");
   console.log("Transaction ID:", result.id);
-  console.log("Open this URL to complete KYC:", result.url);
+  console.log("Open this URL to complete KYC:", encodedUrl);
 
   log("Polling for status updates...");
   try {
@@ -162,9 +163,10 @@ const handleWithdraw = async (
   const amount = args.amount as string | undefined;
 
   const result = await initiateWithdrawal(config, token, amount);
+  const encodedUrl = result.url.replace(/ /g, "%20");
   console.log("Withdrawal initiated.");
   console.log("Transaction ID:", result.id);
-  console.log("Open this URL to complete KYC:", result.url);
+  console.log("Open this URL to complete KYC:", encodedUrl);
 
   log("Polling until anchor is ready to receive payment...");
   const txn = await pollTransaction(

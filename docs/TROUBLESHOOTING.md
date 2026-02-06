@@ -120,6 +120,16 @@ curl http://localhost:8000/health
 2. Ensure your bridge account's G... public key is allowlisted with MoneyGram.
 3. Verify the anchor domain is correct: `extstellar.moneygram.com` for the sandbox.
 
+### Sandbox 500 Internal Server Errors
+
+MoneyGram's sandbox can return persistent 500 errors on SEP-24 endpoints (`/transactions/deposit/interactive`, `/transaction`). Common causes:
+
+- **Re-onboarding processing**: After re-submitting the onboarding form at [developer.moneygram.com](https://developer.moneygram.com), the sandbox may be temporarily unavailable while the new entry is processed. Wait a few minutes and retry.
+- **Sandbox instability**: The MoneyGram sandbox is not as reliable as production. Transient 500 errors can last minutes to hours. The `fetchWithRetry` utility handles brief outages automatically, but extended downtime requires manual retrying later.
+- **Conflicting wallet entries**: Re-submitting the onboarding form with different details (e.g., changing the wallet provider name) may cause conflicts with the previous entry. If 500 errors persist after re-onboarding, contact MoneyGram support.
+
+While waiting, you can verify the rest of the flow using the SDF test anchor (see below).
+
 ### Using the SDF Test Anchor as a fallback
 If MoneyGram sandbox access is not yet available, you can test the SEP-10/SEP-24 flow against the SDF reference anchor:
 
@@ -146,6 +156,18 @@ Note: The SDF test anchor also supports [SEP-45](https://github.com/stellar/stel
    ```
 
 If the balance command also fails with "Account not found", the account has not been funded yet.
+
+## MoneyGram Interactive URL Shows Blank Page
+
+**Symptom**: The SEP-24 deposit or withdrawal interactive URL opens a blank MoneyGram page.
+
+**Cause**: MoneyGram's anchor returns the interactive URL with unencoded spaces in the `wallet_provider` query parameter (e.g., `wallet_provider=CROSSMINT MONEYGRAM RAMP`). Browsers truncate URLs at spaces, breaking the page.
+
+**Fix**:
+
+1. The CLI automatically encodes spaces as `%20` in the displayed URL. If you are using an older version of the CLI, update to the latest.
+2. If the issue persists, manually replace spaces with `%20` in the URL before pasting it into a browser.
+3. To permanently avoid this, re-submit the MoneyGram onboarding form at [developer.moneygram.com](https://developer.moneygram.com) with a wallet provider name that uses hyphens instead of spaces (e.g., `CROSSMINT-MONEYGRAM-RAMP`).
 
 ## Transaction Polling Timeout
 
