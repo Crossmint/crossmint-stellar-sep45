@@ -56,7 +56,8 @@ export const createWallet = async (
     method: "POST",
     headers,
     body: JSON.stringify({
-      type: "stellar-smart-wallet",
+      chainType: "stellar",
+      type: "smart",
       config: {
         adminSigner: { type: "api-key" },
       },
