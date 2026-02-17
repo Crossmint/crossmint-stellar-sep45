@@ -6,13 +6,14 @@
   "tasks": {
     "cli": "deno run --allow-net --allow-read --allow-write --allow-env src/cli.ts",
     "generate-keys": "deno run --allow-env --allow-read scripts/generate-keys.ts",
-    "check": "deno fmt --check && deno check src/logger.ts src/http.ts src/config.ts src/keys.ts src/crossmint.ts src/stellar.ts src/sep10.ts src/sep24.ts src/cli.ts toml-server/src/index.ts",
+    "check": "deno fmt --check && deno check src/logger.ts src/http.ts src/config.ts src/keys.ts src/crossmint.ts src/stellar.ts src/sep10.ts src/sep24.ts src/sep45.ts src/cli.ts toml-server/src/index.ts",
     "lint": "deno lint",
     "test": "deno test --allow-net --allow-read --allow-env",
     "toml-dev": "deno run --allow-net --allow-env --allow-read toml-server/src/index.ts"
   },
   "imports": {
     "@stellar/stellar-sdk": "npm:@stellar/stellar-sdk@^13",
+    "@stellar/js-xdr": "npm:@stellar/js-xdr@^3",
     "@std/dotenv": "jsr:@std/dotenv@0.225",
     "@std/dotenv/load": "jsr:@std/dotenv@0.225/load",
     "@std/cli": "jsr:@std/cli@1",

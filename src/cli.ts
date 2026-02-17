@@ -13,6 +13,7 @@ import {
   setupTrustline,
 } from "./stellar.ts";
 import { authenticate } from "./sep10.ts";
+import { authenticateSep45 } from "./sep45.ts";
 import {
   getTransaction,
   handleWithdrawalPayment,
@@ -27,6 +28,7 @@ const COMMANDS = [
   "wallet",
   "setup",
   "auth",
+  "sep45-auth",
   "deposit",
   "withdraw",
   "status",
@@ -42,6 +44,7 @@ Commands:
   wallet     Create or retrieve Crossmint smart wallet
   setup      Set up USDC trustline on bridge account
   auth       Authenticate with MoneyGram anchor (SEP-10)
+  sep45-auth Authenticate with anchor using SEP-45 (contract accounts)
   deposit    Initiate a cash-to-USDC deposit (SEP-24)
   withdraw   Initiate a USDC-to-cash withdrawal (SEP-24)
   status     Check transaction status
@@ -120,6 +123,31 @@ const handleAuth = async (): Promise<void> => {
   await writeAuthToken(token);
   const preview = token.length > 50 ? token.substring(0, 50) + "..." : token;
   console.log("Authentication successful.");
+  console.log("Token:", preview);
+};
+
+const handleSep45Auth = async (): Promise<void> => {
+  const config = await loadConfig();
+
+  log("Creating/retrieving Crossmint smart wallet...");
+  const wallet = await createWallet(config);
+  console.log("Wallet address (C...):", wallet.address);
+  if (wallet.config?.adminSigner) {
+    console.log("Admin signer (G...):", wallet.config.adminSigner.address);
+  }
+
+  const anchorDomain = "testanchor.stellar.org";
+  log(`Starting SEP-45 authentication with ${anchorDomain}...`);
+
+  const token = await authenticateSep45(
+    config,
+    wallet.address,
+    anchorDomain,
+  );
+
+  await writeAuthToken(token);
+  const preview = token.length > 50 ? token.substring(0, 50) + "..." : token;
+  console.log("SEP-45 authentication successful.");
   console.log("Token:", preview);
 };
 
@@ -276,6 +304,9 @@ const main = async (): Promise<void> => {
         break;
       case "auth":
         await handleAuth();
+        break;
+      case "sep45-auth":
+        await handleSep45Auth();
         break;
       case "deposit":
         await handleDeposit(args);

@@ -104,7 +104,9 @@ export const authenticate = async (config: Config): Promise<string> => {
 
   // SEP-10 challenges are always regular Transactions, never FeeBumpTransactions
   if (decoded instanceof FeeBumpTransaction) {
-    throw new Error("SEP-10 challenge must be a regular Transaction, not a FeeBumpTransaction");
+    throw new Error(
+      "SEP-10 challenge must be a regular Transaction, not a FeeBumpTransaction",
+    );
   }
   const transaction = decoded;
 
@@ -132,7 +134,9 @@ export const authenticate = async (config: Config): Promise<string> => {
     );
   }
 
-  log("SEP-10 challenge validated: sequence=0, timebounds valid, source matches anchor");
+  log(
+    "SEP-10 challenge validated: sequence=0, timebounds valid, source matches anchor",
+  );
 
   // Sign with the bridge keypair
   transaction.sign(bridgeKeypair);
