@@ -279,6 +279,7 @@ crossmint-moneygram-ramp/
     crossmint.ts        Crossmint wallet API (create, get, balances)
     sep10.ts            SEP-10 challenge-response authentication
     sep24.ts            SEP-24 interactive deposit/withdrawal flows
+    sep45.ts            SEP-45 contract account authentication (C... addresses)
   scripts/
     generate-keys.ts    Keypair generation script
   toml-server/
