@@ -26,7 +26,9 @@ export const fetchWithRetry = async (
       if (isRetryableStatus(response.status) && attempt < MAX_RETRIES) {
         const delayMs = BASE_DELAY_MS * 2 ** (attempt - 1);
         log(
-          `[Retry ${attempt}/${MAX_RETRIES}] ${options?.method ?? "GET"} ${url} returned ${response.status}. Waiting ${delayMs}ms...`,
+          `[Retry ${attempt}/${MAX_RETRIES}] ${
+            options?.method ?? "GET"
+          } ${url} returned ${response.status}. Waiting ${delayMs}ms...`,
         );
         await sleep(delayMs);
         continue;
@@ -39,12 +41,15 @@ export const fetchWithRetry = async (
       if (attempt < MAX_RETRIES) {
         const delayMs = BASE_DELAY_MS * 2 ** (attempt - 1);
         logError(
-          `[Retry ${attempt}/${MAX_RETRIES}] ${options?.method ?? "GET"} ${url} failed: ${lastError.message}. Waiting ${delayMs}ms...`,
+          `[Retry ${attempt}/${MAX_RETRIES}] ${
+            options?.method ?? "GET"
+          } ${url} failed: ${lastError.message}. Waiting ${delayMs}ms...`,
         );
         await sleep(delayMs);
       }
     }
   }
 
-  throw lastError ?? new Error(`Request to ${url} failed after ${MAX_RETRIES} attempts`);
+  throw lastError ??
+    new Error(`Request to ${url} failed after ${MAX_RETRIES} attempts`);
 };
