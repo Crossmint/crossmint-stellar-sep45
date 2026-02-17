@@ -214,6 +214,14 @@ deno task cli deposit --amount 10
 3. After KYC + cash deposit, USDC is sent to the bridge account
 4. CLI polls for completion automatically
 
+#### MoneyGram Deposit Flow
+
+Open the interactive URL printed by the CLI. MoneyGram's webview walks you through the cash-in process:
+
+![MoneyGram cash-in form showing amount, exchange currency, payment method, and fees](images/moneygram-deposit-cash-in.png)
+
+Select your country, enter the amount, and choose a payment location. For sandbox testing, use the [MoneyGram test data for cash-in locations](https://developer.moneygram.com/moneygram-developer/docs/on-ramp-cash-in-location-test-data).
+
 #### How it works without MoneyGram
 
 You can test the full deposit flow using the [SDF reference anchor](https://testanchor.stellar.org) (`testanchor.stellar.org`) without any MoneyGram onboarding. The SDF anchor implements the same SEP-10/SEP-24 protocol but uses a simplified KYC form instead of real identity verification:

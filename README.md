@@ -273,4 +273,5 @@ crossmint-moneygram-ramp/
 - [SEP-24: Interactive Deposit/Withdrawal](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md) - Anchor deposit/withdrawal
 - [SEP-45: Contract Account Auth](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md) - Draft spec for Soroban wallets
 - [MoneyGram Developer Docs](https://developer.moneygram.com/moneygram-developer/docs/integrate-moneygram-ramps) - Integration guide
+- [MoneyGram Cash-In Test Data](https://developer.moneygram.com/moneygram-developer/docs/on-ramp-cash-in-location-test-data) - Sandbox test locations
 - [Crossmint API Docs](https://docs.crossmint.com/api-reference/wallets/create-wallet) - Wallet management API
