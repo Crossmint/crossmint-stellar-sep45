@@ -7,7 +7,7 @@
 import { fetchWithRetry } from "./http.ts";
 import { log, logError } from "./logger.ts";
 import { sendPayment } from "./stellar.ts";
-import { fetchToml } from "./sep10.ts";
+import { fetchToml } from "./toml.ts";
 import type { Config } from "./config.ts";
 
 export type InteractiveResponse = {
@@ -44,7 +44,7 @@ const getTransferServerUrl = async (config: Config): Promise<string> => {
   if (cachedTransferServerUrl) {
     return cachedTransferServerUrl;
   }
-  const toml = await fetchToml(config.moneygramDomain);
+  const toml = await fetchToml(config.anchorDomain);
   if (!toml.TRANSFER_SERVER_SEP0024) {
     throw new Error("TRANSFER_SERVER_SEP0024 not found in anchor TOML");
   }
@@ -52,8 +52,14 @@ const getTransferServerUrl = async (config: Config): Promise<string> => {
   return cachedTransferServerUrl;
 };
 
-const getBridgePublicKey = (config: Config): string =>
-  config.bridgeKeypair.publicKey();
+const getBridgePublicKey = (config: Config): string => {
+  if (!config.bridgeKeypair) {
+    throw new Error(
+      "BRIDGE_SEED is required for SEP-24 deposit/withdraw (bridge account sends/receives USDC)",
+    );
+  }
+  return config.bridgeKeypair.publicKey();
+};
 
 export const initiateDeposit = async (
   config: Config,

@@ -1,6 +1,6 @@
 /**
  * Crossmint Smart Wallet management for Stellar.
- * Creates and retrieves wallets, checks balances via Crossmint API.
+ * Creates wallets with external-wallet signers, retrieves wallets, checks balances.
  */
 
 import { fetchWithRetry } from "./http.ts";
@@ -14,6 +14,7 @@ export type CrossmintWallet = {
     readonly adminSigner?: {
       readonly type: string;
       readonly address: string;
+      readonly locator: string;
     };
   };
 };
@@ -29,22 +30,17 @@ const buildHeaders = (config: Config): Record<string, string> => ({
 });
 
 /**
- * Create a Stellar smart wallet. This call is idempotent: passing the same
- * idempotencyKey returns the existing wallet (HTTP 200) instead of creating
- * a duplicate (HTTP 201). When no key is provided, every call creates a new
- * wallet.
- *
- * The x-idempotency-key header is combined with the project ID server-side
- * to form the composite key: stellar-smart-wallet-create-{projectId}-{key}.
- * For user-linked wallets, pass an `owner` field instead (the owner itself
- * guarantees idempotency and cannot be combined with the header).
+ * Create a Stellar smart wallet with the signer keypair as external-wallet admin.
+ * Idempotent: passing the same idempotencyKey returns the existing wallet.
  */
 export const createWallet = async (
   config: Config,
   idempotencyKey?: string,
 ): Promise<CrossmintWallet> => {
   const url = `${config.crossmintBaseUrl}/wallets`;
+  const signerAddress = config.signerKeypair.publicKey();
   log("Creating Crossmint Stellar smart wallet...");
+  log("External signer (G...):", signerAddress);
 
   const headers: Record<string, string> = buildHeaders(config);
   if (idempotencyKey) {
@@ -59,7 +55,7 @@ export const createWallet = async (
       chainType: "stellar",
       type: "smart",
       config: {
-        adminSigner: { type: "api-key" },
+        adminSigner: { type: "external-wallet", address: signerAddress },
       },
     }),
   });

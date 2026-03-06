@@ -1,7 +1,7 @@
 /**
  * SEP-45 Web Authentication for Stellar contract accounts (C... addresses).
  * Handles TOML discovery, Soroban authorization entry signing, and JWT retrieval.
- * This enables smart wallets to authenticate with anchors without a bridge account.
+ * Uses external-wallet signer: creates signature request, signs locally, submits approval.
  *
  * Spec: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md
  */
@@ -20,6 +20,26 @@ type Sep45ChallengeResponse = {
   readonly networkPassphrase: string;
 };
 
+type SignerInfo = {
+  readonly type: string;
+  readonly address: string;
+  readonly locator: string;
+};
+
+type SignatureResponse = {
+  readonly id: string;
+  readonly status: string;
+  readonly outputSignature?: string;
+  readonly error?: unknown;
+  readonly approvals?: {
+    readonly pending?: ReadonlyArray<{
+      readonly signer: SignerInfo;
+      readonly message: string;
+    }>;
+    readonly submitted?: ReadonlyArray<unknown>;
+  };
+};
+
 const SOROBAN_TESTNET_URL = "https://soroban-testnet.stellar.org";
 const SOROBAN_MAINNET_URL = "https://soroban.stellar.org";
 
@@ -30,8 +50,6 @@ const getSorobanServerUrl = (config: Config): string =>
 
 /**
  * Decode a base64 XDR variable-length array of SorobanAuthorizationEntry.
- * Uses XdrReader to parse entries sequentially without the EOF check
- * that fromXDR enforces (which fails on partial buffers).
  */
 const decodeAuthEntries = (
   base64Xdr: string,
@@ -103,9 +121,6 @@ const getEntryAddress = (
   return null;
 };
 
-/**
- * Log details about each authorization entry for debugging.
- */
 const logEntries = (entries: xdr.SorobanAuthorizationEntry[]): void => {
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
@@ -121,9 +136,6 @@ const logEntries = (entries: xdr.SorobanAuthorizationEntry[]): void => {
   }
 };
 
-/**
- * Fetch SEP-45 TOML fields from an anchor domain.
- */
 export const fetchSep45Toml = async (
   domain: string,
 ): Promise<{
@@ -159,9 +171,6 @@ export const fetchSep45Toml = async (
   return { authEndpoint, contractId };
 };
 
-/**
- * Fetch the SEP-45 challenge for a contract account.
- */
 const fetchChallenge = async (
   authEndpoint: string,
   contractAddress: string,
@@ -186,74 +195,146 @@ const fetchChallenge = async (
 };
 
 /**
- * Sign a Soroban authorization entry using the Crossmint Signatures API.
+ * Sign a Soroban authorization entry using the Crossmint Signatures API
+ * with an external-wallet signer.
  *
- * TODO: Crossmint to implement this.
+ * Flow:
+ * 1. POST signature request → status: "awaiting-approval"
+ * 2. Get the pending preimage hash from approvals.pending[0].message
+ * 3. Ed25519-sign the hash locally with our keypair
+ * 4. POST the approval with the signature
+ * 5. Poll until status: "success" → get outputSignature
+ */
+/**
+ * Sign a Soroban authorization entry using the Crossmint Signatures API
+ * with an external-wallet signer.
  *
- * Crossmint needs to add Stellar support to their Signatures API:
- *   - POST /wallets/{walletLocator}/signatures  (create signature)
- *   - POST /wallets/{walletLocator}/signatures/{signatureId}/approvals  (approve)
- *
- * The entry needs to be signed by the wallet's admin signer (Ed25519 key that
- * Crossmint holds for api-key type signers). The signing process is:
- *   1. Serialize the entry's rootInvocation + nonce + network passphrase into
- *      a HashIdPreimage, SHA-256 hash it
- *   2. Ed25519-sign the 32-byte hash with the admin signer key
- *   3. Set the entry's credentials.address.signature to the resulting signature
- *
- * The Stellar SDK's `authorizeEntry(entry, signer, validUntilLedger, networkPassphrase)`
- * handles all of this when given a Keypair. Crossmint would need to either:
- *   a) Accept the raw entry XDR + ledger + network and return the signed entry, or
- *   b) Accept the 32-byte hash for raw Ed25519 signing (we construct the entry)
- *
- * Current status: the Signatures API returns
- *   "Signature type 'message' not supported for wallet type 'stellar-smart-wallet'"
- *
- * Docs:
- *   https://docs.crossmint.com/api-reference/wallets/create-signature
- *   https://docs.crossmint.com/api-reference/wallets/approve-signature
+ * Flow:
+ * 1. POST signature request → status: "awaiting-approval"
+ * 2. Get the pending preimage hash from approvals.pending[0].message
+ * 3. Ed25519-sign the hash locally with our keypair
+ * 4. POST the approval with the signature
+ * 5. Poll until status: "success" → get outputSignature
  */
 const signEntryWithCrossmint = async (
-  _config: Config,
-  _walletAddress: string,
+  config: Config,
+  walletAddress: string,
   entry: xdr.SorobanAuthorizationEntry,
-  _validUntilLedgerSeq: number,
-  _networkPassphrase: string,
 ): Promise<xdr.SorobanAuthorizationEntry> => {
-  // TODO: Crossmint to implement Stellar signature support.
-  //
-  // Expected flow:
-  //
-  // 1. Create signature request:
-  //    POST {baseUrl}/wallets/{walletAddress}/signatures
-  //    Body: { type: "soroban-auth-entry", params: { entry: entryXdrBase64, validUntilLedgerSeq, networkPassphrase } }
-  //
-  // 2. Approve signature (for api-key signers, auto-approved):
-  //    POST {baseUrl}/wallets/{walletAddress}/signatures/{signatureId}/approvals
-  //
-  // 3. Poll or receive the signed entry XDR back.
-  //
-  // 4. Return the signed SorobanAuthorizationEntry.
+  const entryXdr = entry.toXDR().toString("base64");
+  const apiHeaders = {
+    "x-api-key": config.crossmintApiKey,
+    "Content-Type": "application/json",
+  };
 
+  // 1. Create signature request
+  const createUrl =
+    `${config.crossmintBaseUrl}/wallets/${walletAddress}/signatures`;
+  const createRes = await fetchWithRetry(createUrl, {
+    method: "POST",
+    headers: apiHeaders,
+    body: JSON.stringify({
+      type: "auth-entry",
+      params: { entry: entryXdr },
+    }),
+  });
+
+  if (!createRes.ok) {
+    const body = await createRes.text();
+    throw new Error(`Signature creation failed: ${createRes.status} ${body}`);
+  }
+
+  const sigReq = (await createRes.json()) as SignatureResponse;
+  log(`Signature request created: ${sigReq.id}, status: ${sigReq.status}`);
+
+  // 2. Get the pending approval — may need to poll if not immediately available
+  const getUrl =
+    `${config.crossmintBaseUrl}/wallets/${walletAddress}/signatures/${sigReq.id}`;
+  let pending = sigReq.approvals?.pending?.[0];
+
+  if (!pending) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const pollRes = await fetchWithRetry(getUrl, {
+      method: "GET",
+      headers: { "x-api-key": config.crossmintApiKey },
+    });
+    const pollData = (await pollRes.json()) as SignatureResponse;
+    pending = pollData.approvals?.pending?.[0];
+  }
+
+  if (!pending) {
+    throw new Error("No pending approval found in signature request");
+  }
+
+  const signerLocator = pending.signer.locator;
+  log(`Pending approval for signer: ${signerLocator}`);
   log(
-    "WARNING: Crossmint signing not yet available for Stellar wallets.",
+    `Message to sign (preimage hash): ${pending.message.substring(0, 20)}...`,
   );
-  log(
-    "Returning unsigned entry. The anchor will reject this submission.",
-  );
-  return entry;
+
+  // 3. Sign the preimage hash locally with our Ed25519 keypair
+  const messageBytes = Buffer.from(pending.message, "base64");
+  const signatureBytes = config.signerKeypair.sign(messageBytes);
+  const signatureBase64 = Buffer.from(signatureBytes).toString("base64");
+  log("Signed preimage hash locally with Ed25519 keypair");
+
+  // 4. Submit the approval
+  const approvalUrl =
+    `${config.crossmintBaseUrl}/wallets/${walletAddress}/signatures/${sigReq.id}/approvals`;
+  const approvalRes = await fetchWithRetry(approvalUrl, {
+    method: "POST",
+    headers: apiHeaders,
+    body: JSON.stringify({
+      approvals: [{
+        signer: signerLocator,
+        signature: signatureBase64,
+      }],
+    }),
+  });
+
+  if (!approvalRes.ok) {
+    const body = await approvalRes.text();
+    throw new Error(
+      `Approval submission failed: ${approvalRes.status} ${body}`,
+    );
+  }
+
+  log("Approval submitted, polling for completion...");
+
+  // 5. Poll until success
+  let outputSignature: string | null = null;
+
+  while (outputSignature == null) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const statusRes = await fetchWithRetry(getUrl, {
+      method: "GET",
+      headers: { "x-api-key": config.crossmintApiKey },
+    });
+
+    if (!statusRes.ok) {
+      throw new Error(`Signature poll failed: ${statusRes.status}`);
+    }
+
+    const sig = (await statusRes.json()) as SignatureResponse;
+    log(`Signature ${sigReq.id} status: ${sig.status}`);
+
+    if (sig.status === "failed") {
+      throw new Error(`Signature failed: ${JSON.stringify(sig.error)}`);
+    }
+    if (sig.status === "success") {
+      outputSignature = sig.outputSignature ?? null;
+    }
+  }
+
+  return xdr.SorobanAuthorizationEntry.fromXDR(outputSignature, "base64");
 };
 
-/**
- * Submit signed authorization entries to get a JWT.
- */
 const submitSignedEntries = async (
   authEndpoint: string,
   signedEntriesXdr: string,
 ): Promise<string> => {
   log("Submitting signed SEP-45 entries to:", authEndpoint);
 
-  // No retry: the challenge nonce is single-use, so retrying would fail
   const response = await fetch(authEndpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -275,24 +356,19 @@ const submitSignedEntries = async (
 };
 
 /**
- * Full SEP-45 authentication flow for a Crossmint smart wallet.
+ * Full SEP-45 authentication flow.
  *
- * Unlike SEP-10 (which requires a G... bridge account), SEP-45 authenticates
- * the C... contract address directly. The anchor sends Soroban authorization
- * entries that the wallet's admin signer must sign.
- *
- * Once Crossmint adds Stellar support to their Signatures API, this flow
- * will work end-to-end without any bridge account.
+ * SEP-45 authenticates the C... contract address directly.
+ * The signer keypair signs the preimage hash locally, then submits
+ * the approval to Crossmint which assembles the final signed entry.
  */
 export const authenticateSep45 = async (
   config: Config,
   walletAddress: string,
   anchorDomain: string,
 ): Promise<string> => {
-  // Step 1: Discover SEP-45 endpoint from TOML
   const { authEndpoint } = await fetchSep45Toml(anchorDomain);
 
-  // Step 2: Fetch challenge
   const challenge = await fetchChallenge(
     authEndpoint,
     walletAddress,
@@ -300,12 +376,10 @@ export const authenticateSep45 = async (
   );
   log("SEP-45 challenge received. Network:", challenge.networkPassphrase);
 
-  // Step 3: Decode authorization entries
   const entries = decodeAuthEntries(challenge.authorizationEntries);
   log(`Challenge contains ${entries.length} authorization entries:`);
   logEntries(entries);
 
-  // Step 4: Get current ledger sequence for signature expiration
   const sorobanServer = new rpc.Server(getSorobanServerUrl(config));
   const latestLedger = await sorobanServer.getLatestLedger();
   const validUntilLedgerSeq = latestLedger.sequence + 100;
@@ -313,7 +387,6 @@ export const authenticateSep45 = async (
     `Current ledger: ${latestLedger.sequence}, signature valid until: ${validUntilLedgerSeq}`,
   );
 
-  // Step 5: Sign unsigned entries via Crossmint
   const signedEntries = await Promise.all(
     entries.map(async (entry) => {
       if (isUnsignedEntry(entry)) {
@@ -322,15 +395,12 @@ export const authenticateSep45 = async (
           config,
           walletAddress,
           entry,
-          validUntilLedgerSeq,
-          challenge.networkPassphrase,
         );
       }
       return entry;
     }),
   );
 
-  // Step 6: Encode and submit
   const signedXdr = encodeAuthEntries(signedEntries);
   const token = await submitSignedEntries(authEndpoint, signedXdr);
 
