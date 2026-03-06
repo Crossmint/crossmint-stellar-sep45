@@ -1,7 +1,7 @@
 /**
  * Environment configuration loading and validation.
- * Keypairs are derived deterministically from seed strings,
- * so no private keys need to be stored.
+ * Signer keypair is derived deterministically from SIGNER_SEED.
+ * Bridge keypair is optional — only needed for SEP-24 withdrawal payments.
  */
 
 import "@std/dotenv/load";
@@ -11,12 +11,11 @@ import { keypairFromSeed } from "./keys.ts";
 export type Config = {
   readonly crossmintApiKey: string;
   readonly crossmintBaseUrl: string;
-  readonly bridgeKeypair: Keypair;
-  readonly moneygramDomain: string;
+  readonly anchorDomain: string;
   readonly usdcIssuer: string;
-  readonly clientDomain: string;
-  readonly clientSigningKeypair: Keypair | undefined;
   readonly stellarNetwork: "testnet" | "mainnet";
+  readonly signerKeypair: Keypair;
+  readonly bridgeKeypair?: Keypair;
 };
 
 const requireEnv = (name: string): string => {
@@ -37,22 +36,21 @@ export const loadConfig = async (): Promise<Config> => {
     Deno.exit(1);
   }
 
-  const bridgeSeed = requireEnv("BRIDGE_SEED");
-  const bridgeKeypair = await keypairFromSeed(bridgeSeed);
+  const signerSeed = requireEnv("SIGNER_SEED");
+  const signerKeypair = await keypairFromSeed(signerSeed);
 
-  const clientSigningSeed = Deno.env.get("CLIENT_SIGNING_SEED");
-  const clientSigningKeypair = clientSigningSeed
-    ? await keypairFromSeed(clientSigningSeed)
+  const bridgeSeed = Deno.env.get("BRIDGE_SEED");
+  const bridgeKeypair = bridgeSeed
+    ? await keypairFromSeed(bridgeSeed)
     : undefined;
 
   return {
     crossmintApiKey: requireEnv("CROSSMINT_API_KEY"),
     crossmintBaseUrl: requireEnv("CROSSMINT_BASE_URL"),
-    bridgeKeypair,
-    moneygramDomain: requireEnv("MONEYGRAM_DOMAIN"),
+    anchorDomain: Deno.env.get("ANCHOR_DOMAIN") ?? "testanchor.stellar.org",
     usdcIssuer: requireEnv("USDC_ISSUER"),
-    clientDomain: requireEnv("CLIENT_DOMAIN"),
-    clientSigningKeypair,
     stellarNetwork: network,
+    signerKeypair,
+    bridgeKeypair,
   };
 };

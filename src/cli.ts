@@ -1,18 +1,12 @@
 /**
- * CLI entry point with command dispatch.
- * Handles wallet, setup, auth, deposit, withdraw, status, and balance commands.
+ * CLI entry point — SEP-45 auth + SEP-24 deposit/withdraw.
+ * No bridge account needed for authentication (SEP-45 authenticates C... directly).
  */
 
 import { parseArgs } from "@std/cli/parse-args";
 import { log, logError } from "./logger.ts";
 import { loadConfig } from "./config.ts";
 import { createWallet, getBalances, getWallet } from "./crossmint.ts";
-import {
-  fundTestnetAccount,
-  getAccountBalances,
-  setupTrustline,
-} from "./stellar.ts";
-import { authenticate } from "./sep10.ts";
 import { authenticateSep45 } from "./sep45.ts";
 import {
   getTransaction,
@@ -23,12 +17,11 @@ import {
 } from "./sep24.ts";
 
 const AUTH_TOKEN_FILE = ".auth-token";
+const WALLET_FILE = ".wallet-address";
 
 const COMMANDS = [
   "wallet",
-  "setup",
   "auth",
-  "sep45-auth",
   "deposit",
   "withdraw",
   "status",
@@ -42,9 +35,7 @@ Usage: deno task cli <command> [options]
 
 Commands:
   wallet     Create or retrieve Crossmint smart wallet
-  setup      Set up USDC trustline on bridge account
-  auth       Authenticate with MoneyGram anchor (SEP-10)
-  sep45-auth Authenticate with anchor using SEP-45 (contract accounts)
+  auth       Authenticate with anchor using SEP-45 (contract accounts)
   deposit    Initiate a cash-to-USDC deposit (SEP-24)
   withdraw   Initiate a USDC-to-cash withdrawal (SEP-24)
   status     Check transaction status
@@ -75,6 +66,22 @@ const writeAuthToken = async (token: string): Promise<void> => {
   log("Auth token saved to", AUTH_TOKEN_FILE);
 };
 
+const readWalletAddress = async (): Promise<string> => {
+  try {
+    const addr = await Deno.readTextFile(WALLET_FILE);
+    return addr.trim();
+  } catch {
+    throw new Error(
+      "No wallet address found. Run 'deno task cli wallet' first.",
+    );
+  }
+};
+
+const writeWalletAddress = async (address: string): Promise<void> => {
+  await Deno.writeTextFile(WALLET_FILE, address);
+  log("Wallet address saved to", WALLET_FILE);
+};
+
 const handleWallet = async (
   args: ReturnType<typeof parseArgs>,
 ): Promise<void> => {
@@ -87,6 +94,7 @@ const handleWallet = async (
     if (wallet.config?.adminSigner) {
       console.log("Admin signer (G...):", wallet.config.adminSigner.address);
     }
+    await writeWalletAddress(wallet.address);
   } else {
     const idempotencyKey = args.key as string | undefined;
     const wallet = await createWallet(config, idempotencyKey);
@@ -94,55 +102,39 @@ const handleWallet = async (
     if (wallet.config?.adminSigner) {
       console.log("Admin signer (G...):", wallet.config.adminSigner.address);
     }
+    await writeWalletAddress(wallet.address);
   }
-};
-
-const handleSetup = async (): Promise<void> => {
-  const config = await loadConfig();
-  const publicKey = config.bridgeKeypair.publicKey();
-  log("Bridge account public key:", publicKey);
-
-  if (config.stellarNetwork === "testnet") {
-    log("Funding bridge account on testnet...");
-    await fundTestnetAccount(publicKey);
-  }
-
-  log("Setting up USDC trustline...");
-  await setupTrustline(config);
-
-  console.log("Bridge account setup complete.");
-  console.log("Public key:", publicKey);
 };
 
 const handleAuth = async (): Promise<void> => {
   const config = await loadConfig();
+  console.log(
+    "Signer (G...):",
+    config.signerKeypair.publicKey(),
+  );
 
-  log("Starting SEP-10 authentication with MoneyGram anchor...");
-  const token = await authenticate(config);
-
-  await writeAuthToken(token);
-  const preview = token.length > 50 ? token.substring(0, 50) + "..." : token;
-  console.log("Authentication successful.");
-  console.log("Token:", preview);
-};
-
-const handleSep45Auth = async (): Promise<void> => {
-  const config = await loadConfig();
-
-  log("Creating/retrieving Crossmint smart wallet...");
-  const wallet = await createWallet(config);
-  console.log("Wallet address (C...):", wallet.address);
-  if (wallet.config?.adminSigner) {
-    console.log("Admin signer (G...):", wallet.config.adminSigner.address);
+  // Get or create wallet
+  let walletAddress: string;
+  try {
+    walletAddress = await readWalletAddress();
+    log("Using saved wallet:", walletAddress);
+  } catch {
+    log("No saved wallet found, creating one...");
+    const wallet = await createWallet(config);
+    walletAddress = wallet.address;
+    console.log("Wallet address (C...):", walletAddress);
+    if (wallet.config?.adminSigner) {
+      console.log("Admin signer (G...):", wallet.config.adminSigner.address);
+    }
+    await writeWalletAddress(walletAddress);
   }
 
-  const anchorDomain = "testanchor.stellar.org";
-  log(`Starting SEP-45 authentication with ${anchorDomain}...`);
+  log(`Starting SEP-45 authentication with ${config.anchorDomain}...`);
 
   const token = await authenticateSep45(
     config,
-    wallet.address,
-    anchorDomain,
+    walletAddress,
+    config.anchorDomain,
   );
 
   await writeAuthToken(token);
@@ -204,6 +196,16 @@ const handleWithdraw = async (
     "pending_user_transfer_start",
   );
 
+  if (!config.bridgeKeypair) {
+    console.log(
+      "Bridge keypair not configured. Send payment manually to:",
+      txn.withdraw_anchor_account,
+    );
+    console.log("Amount:", txn.amount_in, "USDC");
+    if (txn.withdraw_memo) console.log("Memo:", txn.withdraw_memo);
+    return;
+  }
+
   log("Anchor is ready. Sending USDC to anchor...");
   const hash = await handleWithdrawalPayment(config, txn);
   console.log("Payment sent to anchor. Stellar tx hash:", hash);
@@ -246,21 +248,10 @@ const handleStatus = async (
 const handleBalance = async (): Promise<void> => {
   const config = await loadConfig();
 
-  const publicKey = config.bridgeKeypair.publicKey();
-  console.log("Bridge account:", publicKey);
+  console.log("Crossmint wallet balances:");
   try {
-    const bridgeBalances = await getAccountBalances(config, publicKey);
-    for (const b of bridgeBalances) {
-      console.log(`  ${b.asset}: ${b.balance}`);
-    }
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
-    logError("Could not fetch bridge balances:", msg);
-  }
-
-  console.log("\nCrossmint wallet balances:");
-  try {
-    const walletBalances = await getBalances(config, "me");
+    const walletAddress = await readWalletAddress();
+    const walletBalances = await getBalances(config, walletAddress);
     for (const b of walletBalances) {
       console.log(`  ${b.token}: ${b.amount}`);
     }
@@ -299,14 +290,8 @@ const main = async (): Promise<void> => {
       case "wallet":
         await handleWallet(args);
         break;
-      case "setup":
-        await handleSetup();
-        break;
       case "auth":
         await handleAuth();
-        break;
-      case "sep45-auth":
-        await handleSep45Auth();
         break;
       case "deposit":
         await handleDeposit(args);

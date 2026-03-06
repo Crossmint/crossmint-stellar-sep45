@@ -50,6 +50,9 @@ export const fundTestnetAccount = async (
 };
 
 export const setupTrustline = async (config: Config): Promise<void> => {
+  if (!config.bridgeKeypair) {
+    throw new Error("BRIDGE_SEED is required for trustline setup");
+  }
   const server = getServer(config);
   const keypair = config.bridgeKeypair;
   const publicKey = keypair.publicKey();
@@ -109,6 +112,9 @@ export const sendPayment = async (
   memo?: string,
   memoType?: "text" | "id",
 ): Promise<string> => {
+  if (!config.bridgeKeypair) {
+    throw new Error("BRIDGE_SEED is required for sending payments");
+  }
   const server = getServer(config);
   const keypair = config.bridgeKeypair;
   const publicKey = keypair.publicKey();
