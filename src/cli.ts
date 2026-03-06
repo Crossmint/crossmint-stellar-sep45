@@ -1,6 +1,6 @@
 /**
- * CLI entry point — SEP-45 auth + SEP-24 deposit/withdraw.
- * No bridge account needed for authentication (SEP-45 authenticates C... directly).
+ * CLI entry point — Crossmint Smart Wallets + SEP-45 auth + SEP-24 deposit/withdraw.
+ * Uses the Crossmint Transactions API for withdrawal payments.
  */
 
 import { parseArgs } from "@std/cli/parse-args";
@@ -148,9 +148,10 @@ const handleDeposit = async (
 ): Promise<void> => {
   const config = await loadConfig();
   const token = await readAuthToken();
+  const walletAddress = await readWalletAddress();
   const amount = args.amount as string | undefined;
 
-  const result = await initiateDeposit(config, token, amount);
+  const result = await initiateDeposit(config, token, walletAddress, amount);
   const encodedUrl = result.url.replace(/ /g, "%20");
   console.log("Deposit initiated.");
   console.log("Transaction ID:", result.id);
@@ -180,9 +181,15 @@ const handleWithdraw = async (
 ): Promise<void> => {
   const config = await loadConfig();
   const token = await readAuthToken();
+  const walletAddress = await readWalletAddress();
   const amount = args.amount as string | undefined;
 
-  const result = await initiateWithdrawal(config, token, amount);
+  const result = await initiateWithdrawal(
+    config,
+    token,
+    walletAddress,
+    amount,
+  );
   const encodedUrl = result.url.replace(/ /g, "%20");
   console.log("Withdrawal initiated.");
   console.log("Transaction ID:", result.id);
@@ -196,19 +203,9 @@ const handleWithdraw = async (
     "pending_user_transfer_start",
   );
 
-  if (!config.bridgeKeypair) {
-    console.log(
-      "Bridge keypair not configured. Send payment manually to:",
-      txn.withdraw_anchor_account,
-    );
-    console.log("Amount:", txn.amount_in, "USDC");
-    if (txn.withdraw_memo) console.log("Memo:", txn.withdraw_memo);
-    return;
-  }
-
-  log("Anchor is ready. Sending USDC to anchor...");
-  const hash = await handleWithdrawalPayment(config, txn);
-  console.log("Payment sent to anchor. Stellar tx hash:", hash);
+  log("Anchor is ready. Sending USDC to anchor via Crossmint...");
+  const txId = await handleWithdrawalPayment(config, walletAddress, txn);
+  console.log("Payment sent to anchor. Tx:", txId);
 
   log("Polling until withdrawal is completed...");
   try {

@@ -1,7 +1,6 @@
 /**
  * Environment configuration loading and validation.
  * Signer keypair is derived deterministically from SIGNER_SEED.
- * Bridge keypair is optional — only needed for SEP-24 withdrawal payments.
  */
 
 import "@std/dotenv/load";
@@ -13,9 +12,9 @@ export type Config = {
   readonly crossmintBaseUrl: string;
   readonly anchorDomain: string;
   readonly usdcIssuer: string;
+  readonly usdcContractId: string;
   readonly stellarNetwork: "testnet" | "mainnet";
   readonly signerKeypair: Keypair;
-  readonly bridgeKeypair?: Keypair;
 };
 
 const requireEnv = (name: string): string => {
@@ -39,18 +38,13 @@ export const loadConfig = async (): Promise<Config> => {
   const signerSeed = requireEnv("SIGNER_SEED");
   const signerKeypair = await keypairFromSeed(signerSeed);
 
-  const bridgeSeed = Deno.env.get("BRIDGE_SEED");
-  const bridgeKeypair = bridgeSeed
-    ? await keypairFromSeed(bridgeSeed)
-    : undefined;
-
   return {
     crossmintApiKey: requireEnv("CROSSMINT_API_KEY"),
     crossmintBaseUrl: requireEnv("CROSSMINT_BASE_URL"),
     anchorDomain: Deno.env.get("ANCHOR_DOMAIN") ?? "testanchor.stellar.org",
     usdcIssuer: requireEnv("USDC_ISSUER"),
+    usdcContractId: requireEnv("USDC_CONTRACT_ID"),
     stellarNetwork: network,
     signerKeypair,
-    bridgeKeypair,
   };
 };

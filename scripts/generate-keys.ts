@@ -3,8 +3,7 @@
  * The same seed always produces the same keypair.
  *
  * Usage:
- *   deno task generate-keys --seed "my-bridge-account"
- *   deno task generate-keys --seed "my-client-domain"
+ *   deno task generate-keys --seed "my-signer-seed"
  */
 
 import { parseArgs } from "@std/cli/parse-args";
