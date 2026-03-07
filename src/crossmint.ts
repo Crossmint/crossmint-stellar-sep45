@@ -1,6 +1,6 @@
 /**
  * Crossmint Smart Wallet management for Stellar.
- * Creates wallets with external-wallet signers, retrieves wallets, checks balances.
+ * Creates wallets, retrieves wallets, checks balances, and sends transactions.
  */
 
 import { fetchWithRetry } from "./http.ts";
@@ -22,6 +22,15 @@ export type CrossmintWallet = {
 export type CrossmintBalance = {
   readonly token: string;
   readonly amount: string;
+};
+
+export type CrossmintTransaction = {
+  readonly id: string;
+  readonly status: string;
+  readonly onChain?: {
+    readonly txId?: string;
+  };
+  readonly error?: unknown;
 };
 
 const buildHeaders = (config: Config): Record<string, string> => ({
@@ -123,4 +132,103 @@ export const getBalances = async (
   const balances = (await response.json()) as CrossmintBalance[];
   log("Balances retrieved:", JSON.stringify(balances));
   return balances;
+};
+
+/**
+ * Create a Stellar smart wallet transaction via the Crossmint API.
+ * Used for sending USDC to anchor during SEP-24 withdrawals.
+ */
+export const createTransaction = async (
+  config: Config,
+  walletAddress: string,
+  params: {
+    contractId: string;
+    method: string;
+    args: Record<string, string>;
+    memo?: { type: "text" | "id"; value: string };
+  },
+): Promise<CrossmintTransaction> => {
+  const url = `${config.crossmintBaseUrl}/wallets/${walletAddress}/transactions`;
+  log("Creating Stellar transaction via Crossmint...");
+
+  const response = await fetchWithRetry(url, {
+    method: "POST",
+    headers: buildHeaders(config),
+    body: JSON.stringify({
+      params: {
+        transaction: {
+          type: "contract-call",
+          ...params,
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    logError(`Transaction creation failed: ${response.status}`, body);
+    throw new Error(`Crossmint createTransaction failed: ${response.status}`);
+  }
+
+  const txn = (await response.json()) as CrossmintTransaction;
+  log("Transaction created:", txn.id, "status:", txn.status);
+  return txn;
+};
+
+export const getCrossmintTransaction = async (
+  config: Config,
+  walletAddress: string,
+  transactionId: string,
+): Promise<CrossmintTransaction> => {
+  const url =
+    `${config.crossmintBaseUrl}/wallets/${walletAddress}/transactions/${transactionId}`;
+
+  const response = await fetchWithRetry(url, {
+    method: "GET",
+    headers: { "x-api-key": config.crossmintApiKey },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Crossmint getTransaction failed: ${response.status}`,
+    );
+  }
+
+  return (await response.json()) as CrossmintTransaction;
+};
+
+/**
+ * Poll a Crossmint transaction until it reaches "success" status.
+ */
+export const pollCrossmintTransaction = async (
+  config: Config,
+  walletAddress: string,
+  transactionId: string,
+  timeoutMs = 120000,
+): Promise<CrossmintTransaction> => {
+  log(`Polling Crossmint transaction ${transactionId}...`);
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const txn = await getCrossmintTransaction(
+      config,
+      walletAddress,
+      transactionId,
+    );
+    log(`Transaction ${transactionId} status: ${txn.status}`);
+
+    if (txn.status === "success") {
+      return txn;
+    }
+    if (txn.status === "failed") {
+      throw new Error(
+        `Transaction failed: ${JSON.stringify(txn.error)}`,
+      );
+    }
+  }
+
+  throw new Error(
+    `Polling timed out after ${timeoutMs}ms for transaction ${transactionId}`,
+  );
 };

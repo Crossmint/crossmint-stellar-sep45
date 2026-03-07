@@ -1,6 +1,6 @@
 /**
  * Hono app serving the Stellar TOML file at /.well-known/stellar.toml.
- * Deployed to Vercel for client_domain authentication in SEP-10.
+ * Deployed to Vercel for Stellar protocol service discovery.
  */
 
 import { Hono } from "hono";

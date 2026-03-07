@@ -1,12 +1,15 @@
 /**
  * SEP-24 Interactive deposit and withdrawal flows.
- * Handles deposit initiation, withdrawal initiation, transaction polling,
- * and withdrawal payment execution.
+ * Uses Crossmint smart wallet (C... address) as the account.
+ * Withdrawal payments are sent via the Crossmint Transactions API.
  */
 
 import { fetchWithRetry } from "./http.ts";
 import { log, logError } from "./logger.ts";
-import { sendPayment } from "./stellar.ts";
+import {
+  createTransaction,
+  pollCrossmintTransaction,
+} from "./crossmint.ts";
 import { fetchToml } from "./toml.ts";
 import type { Config } from "./config.ts";
 
@@ -34,9 +37,21 @@ export type Sep24Transaction = {
 
 const POLL_INTERVAL_MS = 5000;
 const DEFAULT_TIMEOUT_MS = 300000;
+const USDC_DECIMALS = 7;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Convert a human-readable amount (e.g. "10.5") to base units (stroops).
+ * Stellar USDC uses 7 decimal places.
+ */
+const toBaseUnits = (amount: string): string => {
+  const [whole, frac = ""] = amount.split(".");
+  const padded = frac.padEnd(USDC_DECIMALS, "0").slice(0, USDC_DECIMALS);
+  const raw = BigInt(whole + padded);
+  return raw.toString();
+};
 
 let cachedTransferServerUrl: string | undefined;
 
@@ -52,29 +67,20 @@ const getTransferServerUrl = async (config: Config): Promise<string> => {
   return cachedTransferServerUrl;
 };
 
-const getBridgePublicKey = (config: Config): string => {
-  if (!config.bridgeKeypair) {
-    throw new Error(
-      "BRIDGE_SEED is required for SEP-24 deposit/withdraw (bridge account sends/receives USDC)",
-    );
-  }
-  return config.bridgeKeypair.publicKey();
-};
-
 export const initiateDeposit = async (
   config: Config,
   token: string,
+  walletAddress: string,
   amount?: string,
 ): Promise<InteractiveResponse> => {
   const transferServer = await getTransferServerUrl(config);
-  const bridgePublicKey = getBridgePublicKey(config);
   const url = `${transferServer}/transactions/deposit/interactive`;
 
   log("Initiating SEP-24 deposit...");
 
   const body: Record<string, string> = {
     asset_code: "USDC",
-    account: bridgePublicKey,
+    account: walletAddress,
   };
 
   if (amount) {
@@ -105,17 +111,17 @@ export const initiateDeposit = async (
 export const initiateWithdrawal = async (
   config: Config,
   token: string,
+  walletAddress: string,
   amount?: string,
 ): Promise<InteractiveResponse> => {
   const transferServer = await getTransferServerUrl(config);
-  const bridgePublicKey = getBridgePublicKey(config);
   const url = `${transferServer}/transactions/withdraw/interactive`;
 
   log("Initiating SEP-24 withdrawal...");
 
   const body: Record<string, string> = {
     asset_code: "USDC",
-    account: bridgePublicKey,
+    account: walletAddress,
   };
 
   if (amount) {
@@ -213,8 +219,13 @@ export const pollTransaction = async (
   );
 };
 
+/**
+ * Send USDC to the anchor via the Crossmint Transactions API.
+ * Creates a contract-call transaction on the USDC SAC contract.
+ */
 export const handleWithdrawalPayment = async (
   config: Config,
+  walletAddress: string,
   transaction: Sep24Transaction,
 ): Promise<string> => {
   if (!transaction.withdraw_anchor_account) {
@@ -227,22 +238,38 @@ export const handleWithdrawalPayment = async (
     throw new Error("Transaction does not include amount_in");
   }
 
+  const amount = toBaseUnits(transaction.amount_in);
   log(
-    `Sending ${transaction.amount_in} USDC to anchor: ${transaction.withdraw_anchor_account}`,
+    `Sending ${transaction.amount_in} USDC (${amount} stroops) to anchor: ${transaction.withdraw_anchor_account}`,
   );
 
-  const memoType = transaction.withdraw_memo_type === "id"
-    ? "id" as const
-    : "text" as const;
+  const memo = transaction.withdraw_memo
+    ? {
+      type: (transaction.withdraw_memo_type === "id" ? "id" : "text") as
+        | "text"
+        | "id",
+      value: transaction.withdraw_memo,
+    }
+    : undefined;
 
-  const hash = await sendPayment(
+  const txn = await createTransaction(config, walletAddress, {
+    contractId: config.usdcContractId,
+    method: "transfer",
+    args: {
+      from: walletAddress,
+      to: transaction.withdraw_anchor_account,
+      amount,
+    },
+    memo,
+  });
+
+  const completed = await pollCrossmintTransaction(
     config,
-    transaction.withdraw_anchor_account,
-    transaction.amount_in,
-    transaction.withdraw_memo,
-    transaction.withdraw_memo_type ? memoType : undefined,
+    walletAddress,
+    txn.id,
   );
 
-  log("Withdrawal payment sent. Hash:", hash);
-  return hash;
+  const txId = completed.onChain?.txId ?? txn.id;
+  log("Withdrawal payment sent. Tx:", txId);
+  return txId;
 };
