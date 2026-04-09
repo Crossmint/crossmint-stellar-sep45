@@ -78,7 +78,9 @@ EOF which fails on arrays). POST uses `application/x-www-form-urlencoded` (test
 anchor doesn't parse JSON). No retry on POST (nonces are single-use).
 
 Signing flow:
-1. `POST /wallets/{addr}/signatures` with `type: "auth-entry"` -- creates request
+
+1. `POST /wallets/{addr}/signatures` with `type: "auth-entry"` -- creates
+   request
 2. Get pending approval message (preimage hash)
 3. Ed25519-sign locally with signer keypair
 4. `POST /wallets/{addr}/signatures/{id}/approvals` -- submit signature
@@ -87,8 +89,8 @@ Signing flow:
 ### SEP-24 (src/sep24.ts)
 
 Interactive deposit/withdrawal. Returns URL for KYC webview. Polls transaction
-status. For withdrawals, sends USDC via Crossmint Transactions API (contract-call
-on USDC SAC with `transfer` method).
+status. For withdrawals, sends USDC via Crossmint Transactions API
+(contract-call on USDC SAC with `transfer` method).
 
 ### Crossmint Wallets (src/crossmint.ts)
 

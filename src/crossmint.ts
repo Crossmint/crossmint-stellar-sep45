@@ -148,7 +148,8 @@ export const createTransaction = async (
     memo?: { type: "text" | "id"; value: string };
   },
 ): Promise<CrossmintTransaction> => {
-  const url = `${config.crossmintBaseUrl}/wallets/${walletAddress}/transactions`;
+  const url =
+    `${config.crossmintBaseUrl}/wallets/${walletAddress}/transactions`;
   log("Creating Stellar transaction via Crossmint...");
 
   const response = await fetchWithRetry(url, {

@@ -6,10 +6,7 @@
 
 import { fetchWithRetry } from "./http.ts";
 import { log, logError } from "./logger.ts";
-import {
-  createTransaction,
-  pollCrossmintTransaction,
-} from "./crossmint.ts";
+import { createTransaction, pollCrossmintTransaction } from "./crossmint.ts";
 import { fetchToml } from "./toml.ts";
 import type { Config } from "./config.ts";
 

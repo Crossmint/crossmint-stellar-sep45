@@ -4,7 +4,7 @@
  */
 
 import "@std/dotenv/load";
-import { Keypair } from "@stellar/stellar-sdk";
+import type { Keypair } from "@stellar/stellar-sdk";
 import { keypairFromSeed } from "./keys.ts";
 
 export type Config = {
