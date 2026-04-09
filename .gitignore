@@ -4,6 +4,8 @@ node_modules/
 # Environment
 .env
 
+.wallet-address
+
 # Auth token (written by CLI)
 .auth-token
 

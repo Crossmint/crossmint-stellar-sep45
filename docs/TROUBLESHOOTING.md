@@ -14,13 +14,13 @@ running CLI commands.
 2. Ensure `"nodeModulesDir": "auto"` is set in `deno.json`. The
    `@stellar/stellar-sdk` package has native Node.js dependencies that require a
    `node_modules` directory.
-3. If errors persist, delete `node_modules` and `deno.lock`, then
-   `deno install` again.
+3. If errors persist, delete `node_modules` and `deno.lock`, then `deno install`
+   again.
 
 ## SEP-45 Authentication Failures
 
-**Symptom**: The `auth` command fails with an error from the anchor's
-SEP-45 endpoint.
+**Symptom**: The `auth` command fails with an error from the anchor's SEP-45
+endpoint.
 
 ### Wallet not created
 
@@ -35,8 +35,8 @@ anchor uses testnet (`Test SDF Network ; September 2015`).
 ### Anchor does not support SEP-45
 
 Not all anchors support SEP-45 (contract account auth). Check the anchor's
-`stellar.toml` for `WEB_AUTH_FOR_CONTRACTS_ENDPOINT`. If it's missing, the anchor
-only supports traditional G... account authentication.
+`stellar.toml` for `WEB_AUTH_FOR_CONTRACTS_ENDPOINT`. If it's missing, the
+anchor only supports traditional G... account authentication.
 
 ## Signature Request Failures
 
@@ -45,13 +45,13 @@ only supports traditional G... account authentication.
 ### Signer mismatch
 
 The signer keypair (derived from `SIGNER_SEED`) must match the external-wallet
-admin signer on the wallet. If you created a wallet with a different seed, either
-use that seed or create a new wallet.
+admin signer on the wallet. If you created a wallet with a different seed,
+either use that seed or create a new wallet.
 
 ### First signature triggers deployment
 
-The first signature request on a new wallet triggers on-chain contract deployment.
-This adds latency (10-30 seconds). Subsequent requests are faster.
+The first signature request on a new wallet triggers on-chain contract
+deployment. This adds latency (10-30 seconds). Subsequent requests are faster.
 
 ## Transaction Failures
 
@@ -64,8 +64,9 @@ balances with `deno task cli balance`.
 
 ### Invalid USDC contract ID
 
-Ensure `USDC_CONTRACT_ID` in your `.env` matches the correct SAC contract for your
-network:
+Ensure `USDC_CONTRACT_ID` in your `.env` matches the correct SAC contract for
+your network:
+
 - Testnet: `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`
 - Mainnet: `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75`
 
@@ -92,8 +93,8 @@ network:
 
 ### 401 Unauthorized
 
-The `CROSSMINT_API_KEY` is invalid or expired. Verify it in the Crossmint console.
-Ensure you are using a staging key if `CROSSMINT_BASE_URL` points to
+The `CROSSMINT_API_KEY` is invalid or expired. Verify it in the Crossmint
+console. Ensure you are using a staging key if `CROSSMINT_BASE_URL` points to
 `staging.crossmint.com`.
 
 ### 403 Forbidden

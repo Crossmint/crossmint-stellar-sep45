@@ -195,47 +195,35 @@ const fetchChallenge = async (
 };
 
 /**
- * Sign a Soroban authorization entry using the Crossmint Signatures API
- * with an external-wallet signer.
+ * Sign all Soroban authorization entries using the Crossmint Signatures API
+ * with an external-wallet signer. Sends all entries in a single request.
  *
  * Flow:
- * 1. POST signature request → status: "awaiting-approval"
+ * 1. POST signature request with all entries -> status: "awaiting-approval"
  * 2. Get the pending preimage hash from approvals.pending[0].message
  * 3. Ed25519-sign the hash locally with our keypair
  * 4. POST the approval with the signature
- * 5. Poll until status: "success" → get outputSignature
+ * 5. Poll until status: "success" -> get signed entries back
  */
-/**
- * Sign a Soroban authorization entry using the Crossmint Signatures API
- * with an external-wallet signer.
- *
- * Flow:
- * 1. POST signature request → status: "awaiting-approval"
- * 2. Get the pending preimage hash from approvals.pending[0].message
- * 3. Ed25519-sign the hash locally with our keypair
- * 4. POST the approval with the signature
- * 5. Poll until status: "success" → get outputSignature
- */
-const signEntryWithCrossmint = async (
+const signEntriesWithCrossmint = async (
   config: Config,
   walletAddress: string,
-  entry: xdr.SorobanAuthorizationEntry,
-): Promise<xdr.SorobanAuthorizationEntry> => {
-  const entryXdr = entry.toXDR().toString("base64");
+  authorizationEntriesXdr: string,
+): Promise<xdr.SorobanAuthorizationEntry[]> => {
   const apiHeaders = {
     "x-api-key": config.crossmintApiKey,
     "Content-Type": "application/json",
   };
 
-  // 1. Create signature request
+  // 1. Create signature request with all entries
   const createUrl =
     `${config.crossmintBaseUrl}/wallets/${walletAddress}/signatures`;
   const createRes = await fetchWithRetry(createUrl, {
     method: "POST",
     headers: apiHeaders,
     body: JSON.stringify({
-      type: "auth-entry",
-      params: { entry: entryXdr },
+      type: "auth-entries",
+      params: { authorizationEntries: authorizationEntriesXdr },
     }),
   });
 
@@ -247,7 +235,7 @@ const signEntryWithCrossmint = async (
   const sigReq = (await createRes.json()) as SignatureResponse;
   log(`Signature request created: ${sigReq.id}, status: ${sigReq.status}`);
 
-  // 2. Get the pending approval — may need to poll if not immediately available
+  // 2. Get the pending approval -- may need to poll if not immediately available
   const getUrl =
     `${config.crossmintBaseUrl}/wallets/${walletAddress}/signatures/${sigReq.id}`;
   let pending = sigReq.approvals?.pending?.[0];
@@ -302,9 +290,7 @@ const signEntryWithCrossmint = async (
   log("Approval submitted, polling for completion...");
 
   // 5. Poll until success
-  let outputSignature: string | null = null;
-
-  while (outputSignature == null) {
+  while (true) {
     await new Promise((r) => setTimeout(r, 2000));
     const statusRes = await fetchWithRetry(getUrl, {
       method: "GET",
@@ -322,11 +308,13 @@ const signEntryWithCrossmint = async (
       throw new Error(`Signature failed: ${JSON.stringify(sig.error)}`);
     }
     if (sig.status === "success") {
-      outputSignature = sig.outputSignature ?? null;
+      const outputXdr = sig.outputSignature;
+      if (!outputXdr) {
+        throw new Error("Signature succeeded but no outputSignature returned");
+      }
+      return decodeAuthEntries(outputXdr);
     }
   }
-
-  return xdr.SorobanAuthorizationEntry.fromXDR(outputSignature, "base64");
 };
 
 const submitSignedEntries = async (
@@ -387,19 +375,13 @@ export const authenticateSep45 = async (
     `Current ledger: ${latestLedger.sequence}, signature valid until: ${validUntilLedgerSeq}`,
   );
 
-  const signedEntries = await Promise.all(
-    entries.map(async (entry) => {
-      if (isUnsignedEntry(entry)) {
-        log("Signing authorization entry via Crossmint...");
-        return await signEntryWithCrossmint(
-          config,
-          walletAddress,
-          entry,
-        );
-      }
-      return entry;
-    }),
+  log("Signing all authorization entries via Crossmint...");
+  const signedEntries = await signEntriesWithCrossmint(
+    config,
+    walletAddress,
+    challenge.authorizationEntries,
   );
+  log(`Received ${signedEntries.length} signed entries from Crossmint`);
 
   const signedXdr = encodeAuthEntries(signedEntries);
   const token = await submitSignedEntries(authEndpoint, signedXdr);

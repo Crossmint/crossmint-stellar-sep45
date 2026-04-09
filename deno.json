@@ -4,7 +4,7 @@
     "strict": true
   },
   "tasks": {
-    "cli": "deno run --allow-net --allow-read --allow-write --allow-env src/cli.ts",
+    "cli": "deno run --allow-ffi --allow-net --allow-read --allow-write --allow-env src/cli.ts",
     "generate-keys": "deno run --allow-env --allow-read scripts/generate-keys.ts",
     "check": "deno fmt --check && deno check src/logger.ts src/http.ts src/config.ts src/keys.ts src/toml.ts src/crossmint.ts src/sep24.ts src/sep45.ts src/cli.ts toml-server/src/index.ts",
     "lint": "deno lint",

@@ -27,7 +27,7 @@ const COMMANDS = [
   "status",
   "balance",
 ] as const;
-type Command = typeof COMMANDS[number];
+type Command = (typeof COMMANDS)[number];
 
 const printUsage = (): void => {
   console.log(`
@@ -55,9 +55,7 @@ const readAuthToken = async (): Promise<string> => {
     const token = await Deno.readTextFile(AUTH_TOKEN_FILE);
     return token.trim();
   } catch {
-    throw new Error(
-      "No auth token found. Run 'deno task cli auth' first.",
-    );
+    throw new Error("No auth token found. Run 'deno task cli auth' first.");
   }
 };
 
@@ -108,10 +106,7 @@ const handleWallet = async (
 
 const handleAuth = async (): Promise<void> => {
   const config = await loadConfig();
-  console.log(
-    "Signer (G...):",
-    config.signerKeypair.publicKey(),
-  );
+  console.log("Signer (G...):", config.signerKeypair.publicKey());
 
   // Get or create wallet
   let walletAddress: string;
@@ -138,7 +133,7 @@ const handleAuth = async (): Promise<void> => {
   );
 
   await writeAuthToken(token);
-  const preview = token.length > 50 ? token.substring(0, 50) + "..." : token;
+  const preview = token.length > 50 ? `${token.substring(0, 50)}...` : token;
   console.log("SEP-45 authentication successful.");
   console.log("Token:", preview);
 };
@@ -159,12 +154,7 @@ const handleDeposit = async (
 
   log("Polling for status updates...");
   try {
-    const txn = await pollTransaction(
-      config,
-      token,
-      result.id,
-      "completed",
-    );
+    const txn = await pollTransaction(config, token, result.id, "completed");
     console.log("Deposit completed. Final status:", txn.status);
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -184,12 +174,7 @@ const handleWithdraw = async (
   const walletAddress = await readWalletAddress();
   const amount = args.amount as string | undefined;
 
-  const result = await initiateWithdrawal(
-    config,
-    token,
-    walletAddress,
-    amount,
-  );
+  const result = await initiateWithdrawal(config, token, walletAddress, amount);
   const encodedUrl = result.url.replace(/ /g, "%20");
   console.log("Withdrawal initiated.");
   console.log("Transaction ID:", result.id);

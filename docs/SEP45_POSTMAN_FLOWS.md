@@ -227,7 +227,7 @@ Response:
 
 ## Environment Variables
 
-| Variable   | Example                                                  |
-| ---------- | -------------------------------------------------------- |
-| `BASE_URL` | `https://staging.crossmint.com/api/2025-06-09`           |
-| `API_KEY`  | Your Crossmint server API key                            |
+| Variable   | Example                                        |
+| ---------- | ---------------------------------------------- |
+| `BASE_URL` | `https://staging.crossmint.com/api/2025-06-09` |
+| `API_KEY`  | Your Crossmint server API key                  |
