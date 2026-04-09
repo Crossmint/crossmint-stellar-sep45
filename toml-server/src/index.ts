@@ -17,7 +17,7 @@ const accounts = Deno.env.get("TOML_ACCOUNTS") ?? "";
 const buildStellarToml = (): string => {
   const accountsArray = accounts ? `["${accounts}"]` : "[]";
 
-  return `# Stellar TOML for MoneyGram x Crossmint integration
+  return `# Stellar TOML for Crossmint Smart Wallet integration
 
 VERSION="2.0.0"
 
@@ -28,7 +28,7 @@ ACCOUNTS=${accountsArray}
 SIGNING_KEY="${signingKey}"
 
 [DOCUMENTATION]
-ORG_NAME="Crossmint MoneyGram Ramp"
+ORG_NAME="Crossmint Stellar SEP-45"
 `;
 };
 

@@ -1,7 +1,6 @@
 # Troubleshooting
 
-Common issues and their solutions when working with the Crossmint Wallets
-MoneyGram Ramp.
+Common issues and their solutions when working with Crossmint Stellar SEP-45.
 
 ## Module Not Found Errors
 
