@@ -1,6 +1,6 @@
 # Getting Started
 
-Step-by-step guide to set up the Crossmint Wallets MoneyGram Ramp.
+Step-by-step guide to set up Crossmint Stellar SEP-45.
 
 ## Prerequisites
 
@@ -25,8 +25,8 @@ The base URL for staging is: `https://staging.crossmint.com/api/2025-06-09`
 ## Step 2: Clone and Install
 
 ```bash
-git clone git@github.com:Crossmint/crossmint-moneygram-ramp.git
-cd crossmint-moneygram-ramp
+git clone git@github.com:Crossmint/crossmint-stellar-sep45.git
+cd crossmint-stellar-sep45
 deno install
 ```
 

@@ -1,4 +1,4 @@
-# Crossmint Wallets MoneyGram Ramp
+# Crossmint Stellar SEP-45
 
 ## Project Status
 
