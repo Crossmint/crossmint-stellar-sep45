@@ -37,6 +37,39 @@ Not all anchors support SEP-45 (contract account auth). Check the anchor's
 `stellar.toml` for `WEB_AUTH_FOR_CONTRACTS_ENDPOINT`. If it's missing, the
 anchor only supports traditional G... account authentication.
 
+### Anchor returns "Failed to simulate transaction" (500)
+
+The SEP-45 challenge contains two authorization entries: one for your contract
+account (`C...`) and one for the anchor's `web_auth_domain_account` (the
+`SIGNING_KEY` published in its `stellar.toml`). When the anchor verifies your
+submission, it simulates the `web_auth_verify` call against Soroban, which
+checks the authorization of both entries. The anchor's entry is a classic `G...`
+account, so Soroban must load that account from the ledger to verify its
+signature. If the anchor's `SIGNING_KEY` account does not exist on the target
+network, the simulation fails and the anchor returns:
+
+```json
+{ "error": "Failed to simulate transaction" }
+```
+
+This happens even when your challenge, your signature, and your wallet contract
+are all valid. It is an anchor-side configuration issue, not a client problem.
+
+Check whether the anchor's signing key exists on-chain:
+
+```bash
+curl https://horizon-testnet.stellar.org/accounts/<SIGNING_KEY>
+```
+
+A 404 means the account is not funded. On testnet it can be created with
+Friendbot; on mainnet it must be funded manually by the anchor operator. To
+inspect exactly what an anchor's challenge contains (entries, signatures, the
+invoked function and its arguments), decode it:
+
+```bash
+deno run --allow-net scripts/decode-challenge.ts <anchor-domain> <C...-account>
+```
+
 ## Signature Request Failures
 
 **Symptom**: The Crossmint Signatures API returns errors during SEP-45 auth.
@@ -88,6 +121,20 @@ your network:
    - `completed`: Transaction finished successfully
    - `error`: Transaction failed (check the `message` field)
 
+## SEP-24 Amount Limits
+
+**Symptom**: A deposit or withdrawal is rejected with an error like
+`amount is less than asset's minimum limit`.
+
+Each anchor sets its own per-asset minimum and maximum. Query the anchor's
+SEP-24 `/info` endpoint to see the current limits:
+
+```bash
+curl <TRANSFER_SERVER_SEP0024>/info
+```
+
+Pass an `--amount` within the asset's `min_amount`/`max_amount` range.
+
 ## Crossmint API Errors
 
 ### 401 Unauthorized
@@ -105,6 +152,12 @@ Crossmint console — it needs Wallets, Signatures, and Transactions permissions
 
 Ensure `CROSSMINT_BASE_URL` uses the correct API version:
 `https://staging.crossmint.com/api/2025-06-09`
+
+### Balances return "tokens is required"
+
+The Crossmint balances endpoint requires a `tokens` query parameter (for example
+`?tokens=usdc,xlm`). The CLI sends this automatically; if you call the API
+directly, include it.
 
 ## Environment File Not Loaded
 

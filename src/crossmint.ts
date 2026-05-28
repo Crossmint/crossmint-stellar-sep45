@@ -20,7 +20,8 @@ export type CrossmintWallet = {
 };
 
 export type CrossmintBalance = {
-  readonly token: string;
+  readonly symbol: string;
+  readonly name: string;
   readonly amount: string;
 };
 
@@ -115,7 +116,7 @@ export const getBalances = async (
 ): Promise<CrossmintBalance[]> => {
   const url = `${config.crossmintBaseUrl}/wallets/${
     encodeURIComponent(locator)
-  }/balances`;
+  }/balances?tokens=usdc,xlm`;
   log("Fetching wallet balances:", locator);
 
   const response = await fetchWithRetry(url, {
