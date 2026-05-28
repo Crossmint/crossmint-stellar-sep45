@@ -8,6 +8,7 @@
 import { scValToNative, StrKey, xdr } from "@stellar/stellar-sdk";
 import jsXdrLib from "@stellar/js-xdr";
 import { Buffer } from "node:buffer";
+import { fetchWithRetry } from "../src/http.ts";
 
 const { XdrReader } = jsXdrLib;
 
@@ -34,7 +35,7 @@ const scAddrToStr = (a: xdr.ScAddress): string => {
 };
 
 const tomlText =
-  await (await fetch(`https://${domain}/.well-known/stellar.toml`))
+  await (await fetchWithRetry(`https://${domain}/.well-known/stellar.toml`))
     .text();
 const endpoint =
   tomlText.match(/^WEB_AUTH_FOR_CONTRACTS_ENDPOINT\s*=\s*"([^"]*)"/m)?.[1] ??
@@ -42,12 +43,8 @@ const endpoint =
 const url = `${endpoint}?account=${account}&home_domain=${domain}`;
 console.log("Challenge URL:", url);
 
-const res = await fetch(url);
-const json = await res.json() as {
-  authorizationEntries: string;
-  networkPassphrase: string;
-};
-console.log("networkPassphrase:", json.networkPassphrase);
+const res = await fetchWithRetry(url);
+const json = await res.json() as { authorizationEntries: string };
 
 const buf = Buffer.from(json.authorizationEntries, "base64");
 const reader = new XdrReader(buf);

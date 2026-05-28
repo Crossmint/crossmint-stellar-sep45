@@ -202,9 +202,6 @@ src/
 scripts/
   generate-keys.ts    Keypair generation utility
   decode-challenge.ts Decode an anchor's SEP-45 challenge for debugging
-toml-server/
-  src/index.ts        Hono app serving /.well-known/stellar.toml
-  api/index.ts        Vercel Edge Function entrypoint
 docs/
   GETTING_STARTED.md  Detailed setup guide
   SEP45_POSTMAN_FLOWS.md  Step-by-step Postman testing for SEP-45
