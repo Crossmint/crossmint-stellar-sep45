@@ -201,6 +201,7 @@ src/
   logger.ts           Timestamped logging
 scripts/
   generate-keys.ts    Keypair generation utility
+  decode-challenge.ts Decode an anchor's SEP-45 challenge for debugging
 toml-server/
   src/index.ts        Hono app serving /.well-known/stellar.toml
   api/index.ts        Vercel Edge Function entrypoint

@@ -235,7 +235,7 @@ const handleBalance = async (): Promise<void> => {
     const walletAddress = await readWalletAddress();
     const walletBalances = await getBalances(config, walletAddress);
     for (const b of walletBalances) {
-      console.log(`  ${b.token}: ${b.amount}`);
+      console.log(`  ${b.symbol}: ${b.amount}`);
     }
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
