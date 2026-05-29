@@ -48,7 +48,7 @@ the USDC holder. Withdrawal payments use the Crossmint Transactions API to call
 ```
 src/
   cli.ts           Entry point. Commands: wallet, auth, deposit, withdraw, status, balance
-  config.ts        Env loading. Config type with signerKeypair, usdcContractId
+  config.ts        Env loading. Config with signerKeypair, usdcContractId, optional clientDomain
   logger.ts        Timestamped log/logError
   http.ts          fetchWithRetry with exponential backoff (3 retries, 1s base)
   keys.ts          Deterministic keypair: SHA-256(seed) -> Keypair.fromRawEd25519Seed()
@@ -58,6 +58,8 @@ src/
 scripts/
   generate-keys.ts    Keypair generator
   decode-challenge.ts Decode an anchor's SEP-45 challenge (debugging)
+toml-server/
+  api/index.ts        Vercel host for your stellar.toml (SEP-45 client_domain)
 docs/
   GETTING_STARTED.md    Step-by-step setup
   SEP45_POSTMAN_FLOWS.md  Postman testing for SEP-45 (external-wallet flow)
@@ -82,6 +84,11 @@ Signing flow:
 3. Ed25519-sign locally with signer keypair
 4. `POST /wallets/{addr}/signatures/{id}/approvals` -- submit signature
 5. Poll until `status: "success"` -- get `outputSignature`
+
+Optional `client_domain` attribution: when `CLIENT_DOMAIN` is set, the challenge
+gains an extra entry for that domain's TOML `SIGNING_KEY`, signed locally via
+the SDK's `authorizeEntry` with `CLIENT_DOMAIN_SIGNER_SEED` before Crossmint
+signs the wallet entry. Host the TOML with `toml-server/`.
 
 ### SEP-24 (src/sep24.ts)
 

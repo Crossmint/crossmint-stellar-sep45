@@ -6,7 +6,7 @@
  * Spec: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0045.md
  */
 
-import { rpc, StrKey, xdr } from "@stellar/stellar-sdk";
+import { authorizeEntry, rpc, StrKey, xdr } from "@stellar/stellar-sdk";
 import jsXdrLib from "@stellar/js-xdr";
 import { Buffer } from "node:buffer";
 import { fetchWithRetry } from "./http.ts";
@@ -175,11 +175,15 @@ const fetchChallenge = async (
   authEndpoint: string,
   contractAddress: string,
   homeDomain: string,
+  clientDomain?: string,
 ): Promise<Sep45ChallengeResponse> => {
   const params = new URLSearchParams({
     account: contractAddress,
     home_domain: homeDomain,
   });
+  if (clientDomain) {
+    params.set("client_domain", clientDomain);
+  }
 
   const url = `${authEndpoint}?${params.toString()}`;
   log("Requesting SEP-45 challenge:", url);
@@ -344,11 +348,59 @@ const submitSignedEntries = async (
 };
 
 /**
+ * Sign the client_domain authorization entry locally with the client-domain
+ * keypair. The anchor adds this entry when a client_domain is supplied; its
+ * address is the SIGNING_KEY published in that domain's stellar.toml.
+ */
+const signClientDomainEntry = async (
+  config: Config,
+  entries: xdr.SorobanAuthorizationEntry[],
+  networkPassphrase: string,
+): Promise<xdr.SorobanAuthorizationEntry[]> => {
+  const keypair = config.clientDomainKeypair!;
+  const publicKey = keypair.publicKey();
+
+  const sorobanServer = new rpc.Server(getSorobanServerUrl(config));
+  const latestLedger = await sorobanServer.getLatestLedger();
+  const validUntilLedgerSeq = latestLedger.sequence + 100;
+  log(
+    `Signing client_domain entry for ${publicKey} (valid until ledger ${validUntilLedgerSeq})`,
+  );
+
+  const result: xdr.SorobanAuthorizationEntry[] = [];
+  let signed = false;
+  for (const entry of entries) {
+    if (
+      !signed && getEntryAddress(entry) === publicKey && isUnsignedEntry(entry)
+    ) {
+      result.push(
+        await authorizeEntry(
+          entry,
+          keypair,
+          validUntilLedgerSeq,
+          networkPassphrase,
+        ),
+      );
+      signed = true;
+    } else {
+      result.push(entry);
+    }
+  }
+
+  if (!signed) {
+    throw new Error(
+      `client_domain is set but the challenge has no unsigned entry for ${publicKey}. Confirm the anchor allowlisted the domain and its stellar.toml SIGNING_KEY matches.`,
+    );
+  }
+  return result;
+};
+
+/**
  * Full SEP-45 authentication flow.
  *
- * SEP-45 authenticates the C... contract address directly.
- * The signer keypair signs the preimage hash locally, then submits
- * the approval to Crossmint which assembles the final signed entry.
+ * SEP-45 authenticates the C... contract address directly. Crossmint signs the
+ * wallet entry; when client_domain attribution is configured, that extra entry
+ * is signed locally with the client-domain keypair first.
  */
 export const authenticateSep45 = async (
   config: Config,
@@ -361,25 +413,27 @@ export const authenticateSep45 = async (
     authEndpoint,
     walletAddress,
     anchorDomain,
+    config.clientDomain,
   );
   log("SEP-45 challenge received. Network:", challenge.networkPassphrase);
 
-  const entries = decodeAuthEntries(challenge.authorizationEntries);
+  let entries = decodeAuthEntries(challenge.authorizationEntries);
   log(`Challenge contains ${entries.length} authorization entries:`);
   logEntries(entries);
 
-  const sorobanServer = new rpc.Server(getSorobanServerUrl(config));
-  const latestLedger = await sorobanServer.getLatestLedger();
-  const validUntilLedgerSeq = latestLedger.sequence + 100;
-  log(
-    `Current ledger: ${latestLedger.sequence}, signature valid until: ${validUntilLedgerSeq}`,
-  );
+  if (config.clientDomain && config.clientDomainKeypair) {
+    entries = await signClientDomainEntry(
+      config,
+      entries,
+      challenge.networkPassphrase,
+    );
+  }
 
-  log("Signing all authorization entries via Crossmint...");
+  log("Signing wallet authorization entry via Crossmint...");
   const signedEntries = await signEntriesWithCrossmint(
     config,
     walletAddress,
-    challenge.authorizationEntries,
+    encodeAuthEntries(entries),
   );
   log(`Received ${signedEntries.length} signed entries from Crossmint`);
 
