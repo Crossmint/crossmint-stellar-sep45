@@ -1,0 +1,5 @@
+{
+  "name": "stellar-toml-host",
+  "private": true,
+  "description": "Vercel-deployable Stellar TOML host for client_domain attribution"
+}
