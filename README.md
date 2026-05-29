@@ -169,15 +169,26 @@ deno task cli <command> [options]
 
 ## Environment Variables
 
-| Variable             | Required | Description                                                         |
-| -------------------- | -------- | ------------------------------------------------------------------- |
-| `CROSSMINT_API_KEY`  | Yes      | Crossmint API key                                                   |
-| `CROSSMINT_BASE_URL` | Yes      | API base URL (e.g., `https://staging.crossmint.com/api/2025-06-09`) |
-| `SIGNER_SEED`        | Yes      | Seed string for deterministic Ed25519 keypair                       |
-| `USDC_ISSUER`        | Yes      | USDC asset issuer on Stellar                                        |
-| `USDC_CONTRACT_ID`   | Yes      | USDC Soroban Asset Contract address                                 |
-| `ANCHOR_DOMAIN`      | No       | Anchor domain (default: `testanchor.stellar.org`)                   |
-| `STELLAR_NETWORK`    | No       | `testnet` (default) or `mainnet`                                    |
+| Variable                    | Required                  | Description                                                               |
+| --------------------------- | ------------------------- | ------------------------------------------------------------------------- |
+| `CROSSMINT_API_KEY`         | Yes                       | Crossmint API key                                                         |
+| `CROSSMINT_BASE_URL`        | Yes                       | API base URL (e.g., `https://staging.crossmint.com/api/2025-06-09`)       |
+| `SIGNER_SEED`               | Yes                       | Seed string for deterministic Ed25519 keypair                             |
+| `USDC_ISSUER`               | Yes                       | USDC asset issuer on Stellar                                              |
+| `USDC_CONTRACT_ID`          | Yes                       | USDC Soroban Asset Contract address                                       |
+| `ANCHOR_DOMAIN`             | No                        | Anchor domain (default: `testanchor.stellar.org`)                         |
+| `STELLAR_NETWORK`           | No                        | `testnet` (default) or `mainnet`                                          |
+| `CLIENT_DOMAIN`             | No                        | Domain serving your `stellar.toml` for SEP-45 `client_domain` attribution |
+| `CLIENT_DOMAIN_SIGNER_SEED` | If `CLIENT_DOMAIN` is set | Seed for the keypair matching that TOML's `SIGNING_KEY`                   |
+
+### client_domain attribution (optional)
+
+Some anchors require `client_domain` attribution to identify the wallet provider
+behind a session, separately from the user's account. Deploy
+[`toml-server/`](toml-server/README.md) to a domain you control, then set
+`CLIENT_DOMAIN` to that domain and `CLIENT_DOMAIN_SIGNER_SEED` to the keypair
+matching its `SIGNING_KEY`. The CLI then sends `client_domain` on the challenge
+and signs the extra authorization entry locally.
 
 ## Tested Against
 
@@ -202,6 +213,8 @@ src/
 scripts/
   generate-keys.ts    Keypair generation utility
   decode-challenge.ts Decode an anchor's SEP-45 challenge for debugging
+toml-server/
+  api/index.ts        Vercel host for your stellar.toml (client_domain)
 docs/
   GETTING_STARTED.md  Detailed setup guide
   SEP45_POSTMAN_FLOWS.md  Step-by-step Postman testing for SEP-45

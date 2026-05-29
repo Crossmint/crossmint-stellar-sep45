@@ -15,6 +15,8 @@ export type Config = {
   readonly usdcContractId: string;
   readonly stellarNetwork: "testnet" | "mainnet";
   readonly signerKeypair: Keypair;
+  readonly clientDomain?: string;
+  readonly clientDomainKeypair?: Keypair;
 };
 
 const requireEnv = (name: string): string => {
@@ -38,6 +40,14 @@ export const loadConfig = async (): Promise<Config> => {
   const signerSeed = requireEnv("SIGNER_SEED");
   const signerKeypair = await keypairFromSeed(signerSeed);
 
+  // Optional SEP-45 client_domain attribution. When CLIENT_DOMAIN is set, the
+  // anchor fetches that domain's stellar.toml SIGNING_KEY and adds an extra
+  // challenge entry we sign with the matching CLIENT_DOMAIN_SIGNER_SEED keypair.
+  const clientDomain = Deno.env.get("CLIENT_DOMAIN") || undefined;
+  const clientDomainKeypair = clientDomain
+    ? await keypairFromSeed(requireEnv("CLIENT_DOMAIN_SIGNER_SEED"))
+    : undefined;
+
   return {
     crossmintApiKey: requireEnv("CROSSMINT_API_KEY"),
     crossmintBaseUrl: requireEnv("CROSSMINT_BASE_URL"),
@@ -46,5 +56,7 @@ export const loadConfig = async (): Promise<Config> => {
     usdcContractId: requireEnv("USDC_CONTRACT_ID"),
     stellarNetwork: network,
     signerKeypair,
+    clientDomain,
+    clientDomainKeypair,
   };
 };
