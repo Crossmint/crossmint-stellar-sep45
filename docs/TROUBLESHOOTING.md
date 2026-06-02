@@ -39,35 +39,45 @@ anchor only supports traditional G... account authentication.
 
 ### Anchor returns "Failed to simulate transaction" (500)
 
-The SEP-45 challenge contains two authorization entries: one for your contract
-account (`C...`) and one for the anchor's `web_auth_domain_account` (the
-`SIGNING_KEY` published in its `stellar.toml`). When the anchor verifies your
-submission, it simulates the `web_auth_verify` call against Soroban, which
-checks the authorization of both entries. The anchor's entry is a classic `G...`
-account, so Soroban must load that account from the ledger to verify its
-signature. If the anchor's `SIGNING_KEY` account does not exist on the target
-network, the simulation fails and the anchor returns:
+The SEP-45 challenge contains one authorization entry per signer. There are
+always two: one for your contract account (`C...`) and one for the anchor's
+`web_auth_domain_account` (the `SIGNING_KEY` in its `stellar.toml`). When you
+use `client_domain` attribution there is a third, for the `SIGNING_KEY` in
+_your_ `stellar.toml`.
+
+When the anchor verifies your submission it simulates the `web_auth_verify` call
+against Soroban, which checks the authorization of every entry. The two
+`SIGNING_KEY` entries are classic `G...` accounts, so Soroban must load each one
+from the ledger to verify its signature. If any of those `SIGNING_KEY` accounts
+does not exist on the target network, the simulation fails and the anchor
+returns:
 
 ```json
 { "error": "Failed to simulate transaction" }
 ```
 
-This happens even when your challenge, your signature, and your wallet contract
-are all valid. It is an anchor-side configuration issue, not a client problem.
+This happens even when your challenge, your signatures, and your wallet contract
+are all valid -- the classic accounts simply have to exist on-chain.
 
-Check whether the anchor's signing key exists on-chain:
+Check each `SIGNING_KEY` account (the anchor's, and your `client_domain` one if
+used) on Horizon:
 
 ```bash
 curl https://horizon-testnet.stellar.org/accounts/<SIGNING_KEY>
 ```
 
-A 404 means the account is not funded. On testnet it can be created with
-Friendbot; on mainnet it must be funded manually by the anchor operator. To
-inspect exactly what an anchor's challenge contains (entries, signatures, the
+A 404 means it is not funded. On testnet, fund it with Friendbot:
+
+```bash
+curl "https://friendbot.stellar.org/?addr=<SIGNING_KEY>"
+```
+
+On mainnet there is no Friendbot, so the account must be created/funded
+manually. To inspect exactly what a challenge contains (entries, signatures, the
 invoked function and its arguments), decode it:
 
 ```bash
-deno run --allow-net scripts/decode-challenge.ts <anchor-domain> <C...-account>
+deno run --allow-net scripts/decode-challenge.ts <anchor-domain> <C-account>
 ```
 
 ## Signature Request Failures
@@ -134,6 +144,42 @@ curl <TRANSFER_SERVER_SEP0024>/info
 ```
 
 Pass an `--amount` within the asset's `min_amount`/`max_amount` range.
+
+## SEP-24 Quote / "Server error" in the Interactive Flow
+
+**Symptom**: The interactive deposit/withdraw webview shows
+`API Error: Server
+error`, and the quote request (e.g.
+`POST /transactions/quote` or `/rampsservice/v3/transactions/quote`) returns
+`500`.
+
+This is usually an anchor-side test-data limitation, not a client problem. On
+the MoneyGram sandbox, only specific agent locations have working test data;
+picking an arbitrary location makes the quote endpoint fail. Use a known-good
+sandbox location -- for MoneyGram deposits,
+`2600 Rice Creek Rd, New Brighton, MN` ("CUB FOODS NEW BRIGHTON") works. If the
+quote still 500s, share the request payload and response with the anchor team.
+
+## SEP-24 Withdraw: "account does not exist" for Contract Accounts
+
+**Symptom**: SEP-45 auth and SEP-24 deposit work for your `C...` contract
+account, but the withdraw fails server-side with:
+
+```
+org.stellar.anchor.exception.SepValidationException: account <C-address> does not exist
+```
+
+This is an upstream Anchor Platform limitation, not a client issue. The withdraw
+path validates the account with a classic (`G...`) account-existence check,
+which a Soroban contract (`C...`) address can never satisfy -- even though the
+same account just received a deposit. The deposit path is contract-aware; the
+withdraw path (as of this writing) is not.
+
+There is no client-side workaround. The fix is in the anchor / Anchor Platform:
+make the withdraw account-existence check skip or adapt for `C...` addresses
+(for example, verify the contract via Soroban RPC instead of a Horizon account
+lookup). Track it with the anchor and the Anchor Platform repo
+(`stellar/java-stellar-anchor-sdk`).
 
 ## Crossmint API Errors
 
