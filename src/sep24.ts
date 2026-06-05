@@ -6,7 +6,11 @@
 
 import { fetchWithRetry } from "./http.ts";
 import { log, logError } from "./logger.ts";
-import { createTransaction, pollCrossmintTransaction } from "./crossmint.ts";
+import {
+  approveCrossmintTransaction,
+  createTransaction,
+  pollCrossmintTransaction,
+} from "./crossmint.ts";
 import { fetchToml } from "./toml.ts";
 import type { Config } from "./config.ts";
 
@@ -259,6 +263,10 @@ export const handleWithdrawalPayment = async (
     },
     memo,
   });
+
+  // Smart-wallet transactions are created in "awaiting-approval"; sign and submit
+  // the approval before polling, or the transfer never settles on-chain.
+  await approveCrossmintTransaction(config, walletAddress, txn);
 
   const completed = await pollCrossmintTransaction(
     config,

@@ -3,6 +3,7 @@
  * Creates wallets, retrieves wallets, checks balances, and sends transactions.
  */
 
+import { Buffer } from "node:buffer";
 import { fetchWithRetry } from "./http.ts";
 import { log, logError } from "./logger.ts";
 import type { Config } from "./config.ts";
@@ -30,6 +31,12 @@ export type CrossmintTransaction = {
   readonly status: string;
   readonly onChain?: {
     readonly txId?: string;
+  };
+  readonly approvals?: {
+    readonly pending?: ReadonlyArray<{
+      readonly signer: { readonly locator: string };
+      readonly message: string;
+    }>;
   };
   readonly error?: unknown;
 };
@@ -175,6 +182,71 @@ export const createTransaction = async (
   const txn = (await response.json()) as CrossmintTransaction;
   log("Transaction created:", txn.id, "status:", txn.status);
   return txn;
+};
+
+/**
+ * Approve a pending Crossmint transaction by signing its preimage with the
+ * external-wallet keypair and submitting the approval. Smart-wallet transactions
+ * are created in "awaiting-approval" and need this before they settle on-chain
+ * (mirrors the SEP-45 auth-entry signing in sep45.ts). No-op if there is no
+ * pending approval (e.g. an api-key signer that auto-approves).
+ */
+export const approveCrossmintTransaction = async (
+  config: Config,
+  walletAddress: string,
+  txn: CrossmintTransaction,
+): Promise<void> => {
+  const txUrl =
+    `${config.crossmintBaseUrl}/wallets/${walletAddress}/transactions/${txn.id}`;
+
+  // The create response may not include the pending approval yet; poll briefly.
+  let pending = txn.approvals?.pending?.[0];
+  let latest = txn;
+  for (let i = 0; !pending && i < 5; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    latest = await getCrossmintTransaction(config, walletAddress, txn.id);
+    pending = latest.approvals?.pending?.[0];
+  }
+  if (!pending) {
+    // If the transaction already moved past "awaiting-approval" it needed no
+    // signature from us (e.g. an api-key signer that auto-approves) -- done.
+    // Otherwise the approval should be here; fail loudly instead of letting
+    // pollCrossmintTransaction time out with a generic error.
+    if (latest.status !== "awaiting-approval") {
+      log(`Transaction requires no approval (status: ${latest.status})`);
+      return;
+    }
+    throw new Error(
+      `No pending approval found for transaction ${txn.id} (status: ${latest.status})`,
+    );
+  }
+
+  const signatureBytes = config.signerKeypair.sign(
+    Buffer.from(pending.message, "base64"),
+  );
+  const signatureBase64 = Buffer.from(signatureBytes).toString("base64");
+  log("Signed transaction preimage with external-wallet keypair");
+
+  const response = await fetchWithRetry(`${txUrl}/approvals`, {
+    method: "POST",
+    headers: buildHeaders(config),
+    body: JSON.stringify({
+      approvals: [{
+        signer: pending.signer.locator,
+        signature: signatureBase64,
+      }],
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    logError(`Transaction approval failed: ${response.status}`, body);
+    throw new Error(
+      `Crossmint transaction approval failed: ${response.status}`,
+    );
+  }
+
+  log("Transaction approval submitted");
 };
 
 export const getCrossmintTransaction = async (
