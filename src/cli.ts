@@ -186,6 +186,7 @@ const handleWithdraw = async (
     token,
     result.id,
     "pending_user_transfer_start",
+    900000,
   );
 
   log("Anchor is ready. Sending USDC to anchor via Crossmint...");

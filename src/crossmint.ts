@@ -3,6 +3,7 @@
  * Creates wallets, retrieves wallets, checks balances, and sends transactions.
  */
 
+import { Buffer } from "node:buffer";
 import { fetchWithRetry } from "./http.ts";
 import { log, logError } from "./logger.ts";
 import type { Config } from "./config.ts";
@@ -30,6 +31,12 @@ export type CrossmintTransaction = {
   readonly status: string;
   readonly onChain?: {
     readonly txId?: string;
+  };
+  readonly approvals?: {
+    readonly pending?: ReadonlyArray<{
+      readonly signer: { readonly locator: string };
+      readonly message: string;
+    }>;
   };
   readonly error?: unknown;
 };
@@ -175,6 +182,61 @@ export const createTransaction = async (
   const txn = (await response.json()) as CrossmintTransaction;
   log("Transaction created:", txn.id, "status:", txn.status);
   return txn;
+};
+
+/**
+ * Approve a pending Crossmint transaction by signing its preimage with the
+ * external-wallet keypair and submitting the approval. Smart-wallet transactions
+ * are created in "awaiting-approval" and need this before they settle on-chain
+ * (mirrors the SEP-45 auth-entry signing in sep45.ts). No-op if there is no
+ * pending approval (e.g. an api-key signer that auto-approves).
+ */
+export const approveCrossmintTransaction = async (
+  config: Config,
+  walletAddress: string,
+  txn: CrossmintTransaction,
+): Promise<void> => {
+  const txUrl =
+    `${config.crossmintBaseUrl}/wallets/${walletAddress}/transactions/${txn.id}`;
+
+  let pending = txn.approvals?.pending?.[0];
+  if (!pending) {
+    // The create response may not include the pending approval yet; fetch once.
+    await new Promise((r) => setTimeout(r, 1000));
+    const polled = await getCrossmintTransaction(config, walletAddress, txn.id);
+    pending = polled.approvals?.pending?.[0];
+  }
+  if (!pending) {
+    log("No pending approval on transaction; nothing to sign");
+    return;
+  }
+
+  const signatureBytes = config.signerKeypair.sign(
+    Buffer.from(pending.message, "base64"),
+  );
+  const signatureBase64 = Buffer.from(signatureBytes).toString("base64");
+  log("Signed transaction preimage with external-wallet keypair");
+
+  const response = await fetchWithRetry(`${txUrl}/approvals`, {
+    method: "POST",
+    headers: buildHeaders(config),
+    body: JSON.stringify({
+      approvals: [{
+        signer: pending.signer.locator,
+        signature: signatureBase64,
+      }],
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    logError(`Transaction approval failed: ${response.status}`, body);
+    throw new Error(
+      `Crossmint transaction approval failed: ${response.status}`,
+    );
+  }
+
+  log("Transaction approval submitted");
 };
 
 export const getCrossmintTransaction = async (
