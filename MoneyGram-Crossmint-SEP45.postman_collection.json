@@ -370,7 +370,7 @@
                   "const keypair = StellarSdk.Keypair.fromRawEd25519Seed(rawSeed);",
                   "const message = pm.collectionVariables.get('pendingMessage');",
                   "if (!message) { console.log('No pendingMessage - run Get Pending Approval first.'); }",
-                  "const signatureB64 = Buffer.from(keypair.sign(Buffer.from(message, 'base64'))).toString('base64');",
+                  "const signatureB64 = message ? Buffer.from(keypair.sign(Buffer.from(message, 'base64'))).toString('base64') : '';",
                   "const body = { approvals: [{ signer: pm.collectionVariables.get('signerLocator'), signature: signatureB64 }] };",
                   "pm.variables.set('approvalBody', JSON.stringify(body));"
                 ]
