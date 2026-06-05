@@ -27,10 +27,19 @@ const walletAddress = (await Deno.readTextFile(".wallet-address")).trim();
 const base =
   `${config.crossmintBaseUrl}/wallets/${walletAddress}/transactions/${txId}`;
 
-const getTx = async () =>
-  await (await fetchWithRetry(base, {
+const getTx = async () => {
+  const res = await fetchWithRetry(base, {
     headers: { "x-api-key": config.crossmintApiKey },
-  })).json();
+  });
+  if (!res.ok) {
+    logError(
+      "Failed to fetch transaction:",
+      `${res.status} ${await res.text()}`,
+    );
+    Deno.exit(1);
+  }
+  return await res.json();
+};
 
 let txn = await getTx();
 log("Wallet:", walletAddress);

@@ -199,16 +199,26 @@ export const approveCrossmintTransaction = async (
   const txUrl =
     `${config.crossmintBaseUrl}/wallets/${walletAddress}/transactions/${txn.id}`;
 
+  // The create response may not include the pending approval yet; poll briefly.
   let pending = txn.approvals?.pending?.[0];
-  if (!pending) {
-    // The create response may not include the pending approval yet; fetch once.
+  let latest = txn;
+  for (let i = 0; !pending && i < 5; i++) {
     await new Promise((r) => setTimeout(r, 1000));
-    const polled = await getCrossmintTransaction(config, walletAddress, txn.id);
-    pending = polled.approvals?.pending?.[0];
+    latest = await getCrossmintTransaction(config, walletAddress, txn.id);
+    pending = latest.approvals?.pending?.[0];
   }
   if (!pending) {
-    log("No pending approval on transaction; nothing to sign");
-    return;
+    // If the transaction already moved past "awaiting-approval" it needed no
+    // signature from us (e.g. an api-key signer that auto-approves) -- done.
+    // Otherwise the approval should be here; fail loudly instead of letting
+    // pollCrossmintTransaction time out with a generic error.
+    if (latest.status !== "awaiting-approval") {
+      log(`Transaction requires no approval (status: ${latest.status})`);
+      return;
+    }
+    throw new Error(
+      `No pending approval found for transaction ${txn.id} (status: ${latest.status})`,
+    );
   }
 
   const signatureBytes = config.signerKeypair.sign(
