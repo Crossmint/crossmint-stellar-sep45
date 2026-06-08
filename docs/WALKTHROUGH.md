@@ -74,13 +74,10 @@ The anchor then releases the cash for pickup against the reference number.
 
 ## A note on contract-account support
 
-Anchors that predate contract-account support can run classic Horizon account
-lookups (`/accounts/{id}`) that fail for `C...` addresses, since Horizon only
-resolves `G...` accounts. These surface as `500`s from the anchor's adapter:
-
-![Anchor 500 during testing](images/moneygram-withdraw-500-debug.png)
-
-The current
+Make sure account-existence is checked in a contract-aware way. Classic Horizon
+`/accounts/{id}` lookups only resolve `G...` addresses, so any source-account
+validation that uses them will reject a `C...` smart wallet even though it is
+live on-chain. The current
 [Stellar Anchor Platform](https://github.com/stellar/anchor-platform) handles
 contract accounts on both deposit and withdraw. See
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for the specific cases encountered
