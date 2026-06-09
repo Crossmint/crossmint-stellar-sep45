@@ -94,7 +94,12 @@ signs the wallet entry. Host the TOML with `toml-server/`.
 
 Interactive deposit/withdrawal. Returns URL for KYC webview. Polls transaction
 status. For withdrawals, sends USDC via Crossmint Transactions API
-(contract-call on USDC SAC with `transfer` method).
+(contract-call on USDC SAC with `transfer` method). When the anchor returns an
+`id` memo, the payment goes to a muxed `M...` destination (anchor account + memo
+id folded into one address via `resolveWithdrawDestination`) and no tx memo is
+sent. Soroban transfer events carry no transaction memos, so the muxed id is
+what off-chain systems (e.g. Circle) use to attribute contract-account payments
+(CAP-67 unified events).
 
 ### Crossmint Wallets (src/crossmint.ts)
 

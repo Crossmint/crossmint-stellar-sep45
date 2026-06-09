@@ -4,6 +4,7 @@
  * Withdrawal payments are sent via the Crossmint Transactions API.
  */
 
+import { Account, MuxedAccount } from "@stellar/stellar-sdk";
 import { fetchWithRetry } from "./http.ts";
 import { log, logError } from "./logger.ts";
 import {
@@ -220,6 +221,44 @@ export const pollTransaction = async (
   );
 };
 
+type WithdrawDestination = {
+  readonly to: string;
+  readonly memo?: { type: "text" | "id"; value: string };
+};
+
+/**
+ * Resolve the SAC transfer destination for a withdrawal payment.
+ *
+ * Soroban transfer events do not carry transaction memos, so off-chain
+ * systems (e.g. Circle) attribute payments from contract accounts via a
+ * muxed M... destination that encodes the anchor account and the id memo
+ * in a single address (CAP-67 unified events). For id memos we fold
+ * account + memo into the M... address and send no memo at all. Anchors
+ * that already return an M... account are used as-is.
+ */
+export const resolveWithdrawDestination = (
+  account: string,
+  memo?: string,
+  memoType?: string,
+): WithdrawDestination => {
+  if (account.startsWith("M")) {
+    return { to: account };
+  }
+  if (account.startsWith("G") && memoType === "id" && memo) {
+    const muxed = new MuxedAccount(new Account(account, "0"), memo);
+    return { to: muxed.accountId() };
+  }
+  return {
+    to: account,
+    memo: memo
+      ? {
+        type: (memoType === "id" ? "id" : "text") as "text" | "id",
+        value: memo,
+      }
+      : undefined,
+  };
+};
+
 /**
  * Send USDC to the anchor via the Crossmint Transactions API.
  * Creates a contract-call transaction on the USDC SAC contract.
@@ -240,28 +279,30 @@ export const handleWithdrawalPayment = async (
   }
 
   const amount = toBaseUnits(transaction.amount_in);
-  log(
-    `Sending ${transaction.amount_in} USDC (${amount} stroops) to anchor: ${transaction.withdraw_anchor_account}`,
+  const destination = resolveWithdrawDestination(
+    transaction.withdraw_anchor_account,
+    transaction.withdraw_memo,
+    transaction.withdraw_memo_type,
   );
 
-  const memo = transaction.withdraw_memo
-    ? {
-      type: (transaction.withdraw_memo_type === "id" ? "id" : "text") as
-        | "text"
-        | "id",
-      value: transaction.withdraw_memo,
-    }
-    : undefined;
+  log(
+    `Sending ${transaction.amount_in} USDC (${amount} stroops) to anchor: ${destination.to}`,
+  );
+  if (destination.to !== transaction.withdraw_anchor_account) {
+    log(
+      `Muxed destination derived from ${transaction.withdraw_anchor_account} + id memo ${transaction.withdraw_memo}`,
+    );
+  }
 
   const txn = await createTransaction(config, walletAddress, {
     contractId: config.usdcContractId,
     method: "transfer",
     args: {
       from: walletAddress,
-      to: transaction.withdraw_anchor_account,
+      to: destination.to,
       amount,
     },
-    memo,
+    memo: destination.memo,
   });
 
   // Smart-wallet transactions are created in "awaiting-approval"; sign and submit
