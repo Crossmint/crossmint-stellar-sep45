@@ -68,8 +68,13 @@ KYC details blurred.
 
 **4. The wallet sends USDC and cash is released** -- the CLI sends 15 USDC from
 the smart wallet to the anchor (a `transfer` on the USDC Soroban Asset Contract,
-signed by the wallet's admin signer). Proof:
-[withdraw payment transaction](https://stellar.expert/explorer/testnet/tx/337206b608ab2a808c9a3576eb563564d4c362c4ce8a99a1c403a3b5204c9f45).
+signed by the wallet's admin signer). Because the anchor returns an `id` memo,
+the CLI folds the anchor account and the memo into a single muxed `M...`
+destination -- Soroban transfer events carry no transaction memos, so the muxed
+id is what off-chain systems read to attribute the payment (see the
+[README withdraw section](../README.md#withdraw-usdc-to-cash)). Proof:
+[withdraw payment transaction](https://stellar.expert/explorer/testnet/tx/06386e9a83d4417db91d11cef43e005926848ac5447c5347f5240ef2e1772588),
+with `destination_muxed_id` visible in the Horizon transfer event.
 The anchor then releases the cash for pickup against the reference number.
 
 ## A note on contract-account support
