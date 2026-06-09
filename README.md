@@ -94,6 +94,9 @@ attribute payments from contract accounts.
 
 </details>
 
+> See the [end-to-end walkthrough](docs/WALKTHROUGH.md) for a full visual run of
+> both flows (deposit and withdraw) against a live anchor.
+
 ## Quick Start
 
 ### Prerequisites
@@ -222,6 +225,7 @@ toml-server/
   api/index.ts        Vercel host for your stellar.toml (client_domain)
 docs/
   GETTING_STARTED.md  Detailed setup guide
+  WALKTHROUGH.md      Visual end-to-end deposit + withdraw run
   SEP45_POSTMAN_FLOWS.md  Step-by-step Postman testing for SEP-45
   TROUBLESHOOTING.md  Common issues and fixes
 ```
