@@ -82,6 +82,11 @@ The CLI initiates a SEP-24 interactive withdrawal. After KYC, the Crossmint
 Transactions API sends USDC from the smart wallet to the anchor's account. The
 user receives a reference code to collect cash.
 
+If the anchor returns an `id` memo, the payment is sent to the muxed `M...`
+address (anchor account + memo id in a single address). Soroban transfer events
+carry no transaction memos, so the muxed destination is how off-chain systems
+attribute payments from contract accounts.
+
 <details>
 <summary>Withdrawal KYC form (SDF test anchor)</summary>
 
