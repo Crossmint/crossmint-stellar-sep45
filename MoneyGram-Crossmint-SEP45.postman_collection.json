@@ -1,0 +1,870 @@
+{
+  "info": {
+    "_postman_id": "0c2e7a4e-7f4a-4d61-9d8a-2f1c9b0e5a10",
+    "name": "MoneyGram-Ramps <> Crossmint (SEP-45 + SEP-24)",
+    "description": "End-to-end reference flow: authenticate a Crossmint Stellar smart wallet (C... contract address) with an anchor via SEP-45 (contract-account auth), then run SEP-24 deposit/withdraw.\n\nThe wallet uses an EXTERNAL-WALLET admin signer (non-custodial), same as this codebase. The signer keypair is derived deterministically from `SIGNER_SEED` (SHA-256 -> Ed25519, matching src/keys.ts). Postman signs the SEP-45 preimage (and the withdraw transaction) LOCALLY with that key and submits it as an approval.\n\n## Prerequisites\n- Postman v11+ (the signing steps use `pm.require('npm:stellar-sdk')` to derive the keypair and sign).\n- A Crossmint server API key with Wallets + Signatures + Transactions scopes.\n\n## Setup (collection variables)\n- `CROSSMINT_BASE_URL`: host only, no `/api` suffix (default `https://staging.crossmint.com`).\n- `CROSSMINT_API_KEY`: your Crossmint server key.\n- `SIGNER_SEED`: any string; the external-wallet signer keypair is derived from it. The G... public key is auto-set into `SIGNER_PUBLIC_KEY`.\n- `ANCHOR_BASE_URL`: the anchor's SEP service base.\n  - testanchor: `https://testanchor.stellar.org`\n  - MoneyGram: `https://extmgxanchor.moneygram.com/stellarsepservice`\n- `HOME_DOMAIN`: the anchor domain (used for the TOML and the `home_domain` param).\n  - `testanchor.stellar.org` or `extmgxanchor.moneygram.com`\n- `ASSET_CODE` / `AMOUNT` / `USDC_CONTRACT_ID`: defaults provided for testnet USDC.\n- `CLIENT_DOMAIN` / `CLIENT_DOMAIN_SIGNER_SEED` (OPTIONAL): leave blank for the standard 2-entry flow (works against testanchor). For client_domain attribution (required by some anchors, e.g. MoneyGram), set them to YOUR OWN domain hosting a stellar.toml plus the matching secret seed; Get Challenge then signs the extra entry locally. No secret ships with this collection.\n- Enable the `x-idempotency-key` header on Create Wallet (set `WALLET_IDEMPOTENCY_KEY`) to reuse the same wallet across runs.\n\n## Run order\n0. Setup: `TOML Discovery` -> `Create Wallet` (-> `Get Balances`)\n1. SEP-45 Auth: `Get Challenge` -> `Create Signature` -> `Get Pending Approval` (re-send until a pending approval appears) -> `Approve Signature` -> `Get Signature` (re-send until status=success) -> `Submit Challenge` (sets `AUTH_TOKEN`)\n2. SEP-24 Deposit: `Initiate Deposit` (open the returned URL, complete KYC) -> `Get Deposit Status`\n3. SEP-24 Withdraw: `Initiate Withdraw` (complete KYC) -> `Get Withdraw Status` (re-send until `pending_user_transfer_start`) -> `Send USDC to Anchor` -> `Approve Transaction` -> `Get Crossmint Transaction`\n\n## Notes\n- First signature on a new wallet also deploys the contract (adds latency); just re-send `Get Signature`.\n- If `Submit Challenge` returns `500 {\"error\":\"Failed to simulate transaction\"}`, the anchor's `SIGNING_KEY` account does not exist on-chain. `TOML Discovery` logs it; check `https://horizon-testnet.stellar.org/accounts/<SIGNING_KEY>` and fund it with Friendbot on testnet.\n- The withdraw transaction is signed the same way as the auth entry (non-custodial). If your Crossmint transaction returns no pending approval, the `Approve Transaction` step is a no-op and `Get Crossmint Transaction` will reach success on its own.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Setup",
+      "item": [
+        {
+          "name": "TOML Discovery",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('TOML returns 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const lines = pm.response.text().split('\\n');",
+                  "const get = (k) => {",
+                  "  const line = lines.find((l) => l.trim().startsWith(k));",
+                  "  if (!line || line.indexOf('=') < 0) return '';",
+                  "  return line.slice(line.indexOf('=') + 1).trim().replace(/\"/g, '');",
+                  "};",
+                  "",
+                  "const sep45 = get('WEB_AUTH_FOR_CONTRACTS_ENDPOINT');",
+                  "const sep24 = get('TRANSFER_SERVER_SEP0024');",
+                  "const signingKey = get('SIGNING_KEY');",
+                  "",
+                  "console.log('WEB_AUTH_FOR_CONTRACTS_ENDPOINT:', sep45 || '(missing - anchor has no SEP-45)');",
+                  "console.log('TRANSFER_SERVER_SEP0024:', sep24);",
+                  "console.log('SIGNING_KEY:', signingKey);",
+                  "console.log('Verify the SIGNING_KEY account exists on-chain (testnet): https://horizon-testnet.stellar.org/accounts/' + signingKey);",
+                  "",
+                  "pm.test('Anchor advertises a SEP-45 endpoint', () => pm.expect(sep45, 'WEB_AUTH_FOR_CONTRACTS_ENDPOINT').to.not.equal(''));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://{{HOME_DOMAIN}}/.well-known/stellar.toml",
+              "protocol": "https",
+              "host": ["{{HOME_DOMAIN}}"],
+              "path": [".well-known", "stellar.toml"]
+            },
+            "description": "Fetches the anchor's stellar.toml from the domain root and logs the SEP-45 endpoint, SEP-24 transfer server, and SIGNING_KEY."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Wallet",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "packages": { "npm:stellar-sdk": { "id": "npm:stellar-sdk" } },
+                "exec": [
+                  "// Derive the external-wallet signer keypair from SIGNER_SEED (SHA-256 -> Ed25519, same as src/keys.ts).",
+                  "const StellarSdk = pm.require('npm:stellar-sdk');",
+                  "const seed = pm.collectionVariables.get('SIGNER_SEED');",
+                  "let rawSeed;",
+                  "try {",
+                  "  rawSeed = StellarSdk.hash(Buffer.from(seed, 'utf8'));",
+                  "} catch (e) {",
+                  "  const CryptoJS = require('crypto-js');",
+                  "  rawSeed = Buffer.from(CryptoJS.SHA256(CryptoJS.enc.Utf8.parse(seed)).toString(CryptoJS.enc.Hex), 'hex');",
+                  "}",
+                  "const keypair = StellarSdk.Keypair.fromRawEd25519Seed(rawSeed);",
+                  "pm.variables.set('SIGNER_PUBLIC_KEY', keypair.publicKey());",
+                  "console.log('External signer (G...): ' + keypair.publicKey());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json;",
+                  "pm.test('Response is JSON', () => { json = pm.response.json(); pm.expect(json).to.be.an('object'); });",
+                  "pm.test('Status is 200 or 201', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "pm.test('Has a C... address', () => {",
+                  "  pm.expect(json).to.have.property('address');",
+                  "  pm.expect(json.address).to.be.a('string').and.to.have.length.greaterThan(0);",
+                  "});",
+                  "if (json && json.address) {",
+                  "  pm.collectionVariables.set('crossmintWalletAddress', json.address);",
+                  "  console.log('Smart wallet (C...): ' + json.address);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{CROSSMINT_API_KEY}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" },
+              { "key": "x-idempotency-key", "value": "{{WALLET_IDEMPOTENCY_KEY}}", "type": "text", "disabled": true }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chainType\": \"stellar\",\n  \"type\": \"smart\",\n  \"config\": {\n    \"adminSigner\": {\n      \"type\": \"external-wallet\",\n      \"address\": \"{{SIGNER_PUBLIC_KEY}}\"\n    }\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{CROSSMINT_BASE_URL}}/api/2025-06-09/wallets",
+              "host": ["{{CROSSMINT_BASE_URL}}"],
+              "path": ["api", "2025-06-09", "wallets"]
+            },
+            "description": "Creates a Stellar smart wallet with an EXTERNAL-WALLET admin signer. The pre-request derives the signer keypair from SIGNER_SEED and sets SIGNER_PUBLIC_KEY (the G... address) used in the body. Enable x-idempotency-key to reuse the same wallet across runs."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Balances",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const balances = pm.response.json();",
+                  "if (Array.isArray(balances)) {",
+                  "  balances.forEach((b) => console.log((b.symbol || b.token) + ': ' + b.amount));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{CROSSMINT_API_KEY}}", "type": "text" }],
+            "url": {
+              "raw": "{{CROSSMINT_BASE_URL}}/api/2025-06-09/wallets/{{crossmintWalletAddress}}/balances?tokens=usdc,xlm",
+              "host": ["{{CROSSMINT_BASE_URL}}"],
+              "path": ["api", "2025-06-09", "wallets", "{{crossmintWalletAddress}}", "balances"],
+              "query": [{ "key": "tokens", "value": "usdc,xlm" }]
+            },
+            "description": "Reads wallet balances. The tokens query param is required by the Crossmint balances API."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1. SEP-45 Auth",
+      "item": [
+        {
+          "name": "Get Challenge",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Build the challenge URL; only add client_domain when it is configured.",
+                  "let url = pm.collectionVariables.get('ANCHOR_BASE_URL') + '/sep45/auth';",
+                  "url += '?account=' + encodeURIComponent(pm.collectionVariables.get('crossmintWalletAddress'));",
+                  "url += '&home_domain=' + encodeURIComponent(pm.collectionVariables.get('HOME_DOMAIN'));",
+                  "const cd = pm.collectionVariables.get('CLIENT_DOMAIN');",
+                  "if (cd) { url += '&client_domain=' + encodeURIComponent(cd); }",
+                  "pm.variables.set('challengeUrl', url);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "packages": {
+                  "npm:stellar-sdk": { "id": "npm:stellar-sdk" },
+                  "npm:@stellar/js-xdr": { "id": "npm:@stellar/js-xdr" }
+                },
+                "exec": [
+                  "const StellarSdk = pm.require('npm:stellar-sdk');",
+                  "const jsXdr = pm.require('npm:@stellar/js-xdr');",
+                  "const { xdr, Keypair, hash, authorizeEntry, StrKey } = StellarSdk;",
+                  "const { XdrReader, XdrWriter } = jsXdr;",
+                  "",
+                  "pm.test('Challenge returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('authorizationEntries present', () => pm.expect(json).to.have.property('authorizationEntries'));",
+                  "console.log('Network: ' + json.networkPassphrase);",
+                  "",
+                  "const clientDomain = pm.collectionVariables.get('CLIENT_DOMAIN');",
+                  "if (!clientDomain) {",
+                  "  // No client_domain: submit the challenge entries unchanged.",
+                  "  pm.collectionVariables.set('challengeAuthorizationEntries', json.authorizationEntries);",
+                  "  return;",
+                  "}",
+                  "",
+                  "// client_domain attribution: sign the extra entry locally with the client-domain key,",
+                  "// then Crossmint signs the wallet entry in Create Signature.",
+                  "const seed = pm.collectionVariables.get('CLIENT_DOMAIN_SIGNER_SEED');",
+                  "let rawSeed;",
+                  "try { rawSeed = hash(Buffer.from(seed, 'utf8')); }",
+                  "catch (e) { const CryptoJS = require('crypto-js'); rawSeed = Buffer.from(CryptoJS.SHA256(CryptoJS.enc.Utf8.parse(seed)).toString(CryptoJS.enc.Hex), 'hex'); }",
+                  "const kp = Keypair.fromRawEd25519Seed(rawSeed);",
+                  "const pub = kp.publicKey();",
+                  "",
+                  "const reader = new XdrReader(Buffer.from(json.authorizationEntries, 'base64'));",
+                  "const count = reader.readUInt32BE();",
+                  "const entries = [];",
+                  "for (let i = 0; i < count; i++) entries.push(xdr.SorobanAuthorizationEntry.read(reader));",
+                  "",
+                  "const addrOf = (e) => {",
+                  "  const c = e.credentials();",
+                  "  if (c.switch().name !== 'sorobanCredentialsAddress') return '';",
+                  "  const a = c.address().address();",
+                  "  return a.switch().name === 'scAddressTypeAccount' ? StrKey.encodeEd25519PublicKey(a.accountId().ed25519()) : '';",
+                  "};",
+                  "const isUnsigned = (e) => {",
+                  "  const c = e.credentials();",
+                  "  if (c.switch().name !== 'sorobanCredentialsAddress') return false;",
+                  "  const s = c.address().signature();",
+                  "  return s.switch().name === 'scvVoid' || (s.switch().name === 'scvMap' && (!s.value() || s.value().length === 0));",
+                  "};",
+                  "",
+                  "// Reuse a valid expiration ledger from the anchor's already-signed entry.",
+                  "let validUntil = 0;",
+                  "for (const e of entries) {",
+                  "  const c = e.credentials();",
+                  "  if (c.switch().name === 'sorobanCredentialsAddress') {",
+                  "    const ex = c.address().signatureExpirationLedger();",
+                  "    if (ex > validUntil) validUntil = ex;",
+                  "  }",
+                  "}",
+                  "",
+                  "const out = [];",
+                  "let signed = false;",
+                  "for (const e of entries) {",
+                  "  if (!signed && addrOf(e) === pub && isUnsigned(e)) {",
+                  "    out.push(await authorizeEntry(e, kp, validUntil, json.networkPassphrase));",
+                  "    signed = true;",
+                  "  } else { out.push(e); }",
+                  "}",
+                  "pm.test('Signed the client_domain entry (' + pub + ')', () => pm.expect(signed).to.eql(true));",
+                  "",
+                  "const writer = new XdrWriter();",
+                  "writer.writeUInt32BE(out.length);",
+                  "out.forEach((e) => xdr.SorobanAuthorizationEntry.write(e, writer));",
+                  "pm.collectionVariables.set('challengeAuthorizationEntries', Buffer.from(writer.toArray()).toString('base64'));",
+                  "console.log('Signed client_domain entry for ' + pub + ' (valid until ledger ' + validUntil + ')');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{challengeUrl}}",
+              "host": ["{{challengeUrl}}"]
+            },
+            "description": "Requests the SEP-45 challenge. The pre-request builds the URL and only adds client_domain when CLIENT_DOMAIN is set. The test signs the client_domain entry locally (only when CLIENT_DOMAIN + CLIENT_DOMAIN_SIGNER_SEED are set) before Crossmint signs the wallet entry."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Signature",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let json;",
+                  "pm.test('Status is 200 or 201', () => { json = pm.response.json(); pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                  "pm.test('Has signature id', () => pm.expect(json.id).to.be.a('string').and.to.have.length.greaterThan(0));",
+                  "if (json && json.id) {",
+                  "  pm.collectionVariables.set('signatureId', json.id);",
+                  "  console.log('Signature request: ' + json.id + ' (status: ' + json.status + ')');",
+                  "}",
+                  "// Capture the pending approval message now if the API already returned it.",
+                  "const pending = json && json.approvals && json.approvals.pending && json.approvals.pending[0];",
+                  "if (pending) {",
+                  "  pm.collectionVariables.set('pendingMessage', pending.message);",
+                  "  pm.collectionVariables.set('signerLocator', pending.signer.locator);",
+                  "  console.log('Pending approval ready for: ' + pending.signer.locator);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{CROSSMINT_API_KEY}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"auth-entries\",\n  \"params\": {\n    \"authorizationEntries\": \"{{challengeAuthorizationEntries}}\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{CROSSMINT_BASE_URL}}/api/2025-06-09/wallets/{{crossmintWalletAddress}}/signatures",
+              "host": ["{{CROSSMINT_BASE_URL}}"],
+              "path": ["api", "2025-06-09", "wallets", "{{crossmintWalletAddress}}", "signatures"]
+            },
+            "description": "Creates a signature request for the full challenge array (type auth-entries). With an external-wallet signer this returns status awaiting-approval plus a preimage to sign."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pending Approval",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "const pending = json.approvals && json.approvals.pending && json.approvals.pending[0];",
+                  "if (!pending) {",
+                  "  console.log('No pending approval yet (status: ' + json.status + '). Re-send.');",
+                  "  pm.test('Pending approval available (re-send if not)', () => pm.expect(pending, 'pending approval').to.not.be.undefined);",
+                  "  return;",
+                  "}",
+                  "pm.collectionVariables.set('pendingMessage', pending.message);",
+                  "pm.collectionVariables.set('signerLocator', pending.signer.locator);",
+                  "console.log('Signer: ' + pending.signer.locator);",
+                  "console.log('Preimage to sign (base64): ' + String(pending.message).slice(0, 24) + '...');",
+                  "pm.test('Captured pending approval message', () => pm.expect(pending.message).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{CROSSMINT_API_KEY}}", "type": "text" }],
+            "url": {
+              "raw": "{{CROSSMINT_BASE_URL}}/api/2025-06-09/wallets/{{crossmintWalletAddress}}/signatures/{{signatureId}}",
+              "host": ["{{CROSSMINT_BASE_URL}}"],
+              "path": ["api", "2025-06-09", "wallets", "{{crossmintWalletAddress}}", "signatures", "{{signatureId}}"]
+            },
+            "description": "Reads the signature request to capture the pending preimage (pendingMessage) and signer locator. Re-send until a pending approval is present."
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Signature",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "packages": { "npm:stellar-sdk": { "id": "npm:stellar-sdk" } },
+                "exec": [
+                  "// Sign the preimage hash locally with the external-wallet keypair (Ed25519), same as src/sep45.ts.",
+                  "const StellarSdk = pm.require('npm:stellar-sdk');",
+                  "const seed = pm.collectionVariables.get('SIGNER_SEED');",
+                  "let rawSeed;",
+                  "try {",
+                  "  rawSeed = StellarSdk.hash(Buffer.from(seed, 'utf8'));",
+                  "} catch (e) {",
+                  "  const CryptoJS = require('crypto-js');",
+                  "  rawSeed = Buffer.from(CryptoJS.SHA256(CryptoJS.enc.Utf8.parse(seed)).toString(CryptoJS.enc.Hex), 'hex');",
+                  "}",
+                  "const keypair = StellarSdk.Keypair.fromRawEd25519Seed(rawSeed);",
+                  "const message = pm.collectionVariables.get('pendingMessage');",
+                  "if (!message) { console.log('No pendingMessage - run Get Pending Approval first.'); }",
+                  "const signatureB64 = message ? Buffer.from(keypair.sign(Buffer.from(message, 'base64'))).toString('base64') : '';",
+                  "const body = { approvals: [{ signer: pm.collectionVariables.get('signerLocator'), signature: signatureB64 }] };",
+                  "pm.variables.set('approvalBody', JSON.stringify(body));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Approval accepted', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "console.log('Approval submitted. Now poll Get Signature until status is success.');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{CROSSMINT_API_KEY}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{approvalBody}}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{CROSSMINT_BASE_URL}}/api/2025-06-09/wallets/{{crossmintWalletAddress}}/signatures/{{signatureId}}/approvals",
+              "host": ["{{CROSSMINT_BASE_URL}}"],
+              "path": ["api", "2025-06-09", "wallets", "{{crossmintWalletAddress}}", "signatures", "{{signatureId}}", "approvals"]
+            },
+            "description": "Signs the preimage locally with the external-wallet keypair (pre-request) and submits the approval. The body is built into approvalBody."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Signature",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "console.log('Signature status: ' + json.status);",
+                  "",
+                  "if (json.status === 'failed') {",
+                  "  pm.test('Signature did not fail', () => pm.expect(json.status, JSON.stringify(json.error)).to.not.eql('failed'));",
+                  "  return;",
+                  "}",
+                  "if (json.status !== 'success') {",
+                  "  console.log('Not ready yet - re-send this request until status is \"success\".');",
+                  "  pm.test('Signature is success (re-send if pending)', () => pm.expect(json.status).to.eql('success'));",
+                  "  return;",
+                  "}",
+                  "",
+                  "// outputSignature is already the full signed authorization_entries array",
+                  "// (count-prefixed XDR), so it can be submitted to the anchor as-is.",
+                  "pm.collectionVariables.set('signedEntriesArray', json.outputSignature);",
+                  "console.log('Saved signed entries array to {{signedEntriesArray}}');",
+                  "pm.test('outputSignature present', () => pm.expect(json.outputSignature).to.be.a('string').and.to.have.length.greaterThan(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{CROSSMINT_API_KEY}}", "type": "text" }],
+            "url": {
+              "raw": "{{CROSSMINT_BASE_URL}}/api/2025-06-09/wallets/{{crossmintWalletAddress}}/signatures/{{signatureId}}",
+              "host": ["{{CROSSMINT_BASE_URL}}"],
+              "path": ["api", "2025-06-09", "wallets", "{{crossmintWalletAddress}}", "signatures", "{{signatureId}}"]
+            },
+            "description": "Polls the signature after approval. Re-send until status is success; it then reconstructs the signed authorization_entries array into signedEntriesArray."
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Challenge",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Submit returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Received a JWT token', () => pm.expect(json.token).to.be.a('string').and.to.have.length.greaterThan(0));",
+                  "if (json.token) {",
+                  "  pm.collectionVariables.set('AUTH_TOKEN', json.token);",
+                  "  console.log('SEP-45 auth successful. AUTH_TOKEN set.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "authorization_entries", "value": "{{signedEntriesArray}}", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{ANCHOR_BASE_URL}}/sep45/auth",
+              "host": ["{{ANCHOR_BASE_URL}}"],
+              "path": ["sep45", "auth"]
+            },
+            "description": "Submits the signed entries to the anchor and receives the JWT (AUTH_TOKEN) used for SEP-24.\n\nIf this returns 500 \"Failed to simulate transaction\", the anchor's SIGNING_KEY account is not on-chain (see TOML Discovery)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. SEP-24 Deposit (cash -> USDC)",
+      "item": [
+        {
+          "name": "Initiate Deposit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Deposit returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Has interactive url and id', () => {",
+                  "  pm.expect(json).to.have.property('url');",
+                  "  pm.expect(json).to.have.property('id');",
+                  "});",
+                  "if (json.id) pm.collectionVariables.set('depositTransactionId', json.id);",
+                  "console.log('Open this URL to complete KYC + cash-in:');",
+                  "console.log(json.url);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{AUTH_TOKEN}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json", "type": "text" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asset_code\": \"{{ASSET_CODE}}\",\n  \"account\": \"{{crossmintWalletAddress}}\",\n  \"amount\": \"{{AMOUNT}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{ANCHOR_BASE_URL}}/sep24/transactions/deposit/interactive",
+              "host": ["{{ANCHOR_BASE_URL}}"],
+              "path": ["sep24", "transactions", "deposit", "interactive"]
+            },
+            "description": "Starts an interactive deposit. Open the returned URL in a browser to complete KYC; the anchor then sends USDC to the C... wallet. Amount must be within the anchor's limits (see /info)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Deposit Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status returns 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json().transaction;",
+                  "console.log('Deposit status: ' + (t && t.status));",
+                  "if (t && t.message) console.log('Message: ' + t.message);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{AUTH_TOKEN}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ANCHOR_BASE_URL}}/sep24/transaction?id={{depositTransactionId}}",
+              "host": ["{{ANCHOR_BASE_URL}}"],
+              "path": ["sep24", "transaction"],
+              "query": [{ "key": "id", "value": "{{depositTransactionId}}" }]
+            },
+            "description": "Polls the deposit transaction. Re-send to watch it progress (incomplete -> pending_anchor -> completed)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. SEP-24 Withdraw (USDC -> cash)",
+      "item": [
+        {
+          "name": "Initiate Withdraw",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Withdraw returns 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Has interactive url and id', () => {",
+                  "  pm.expect(json).to.have.property('url');",
+                  "  pm.expect(json).to.have.property('id');",
+                  "});",
+                  "if (json.id) pm.collectionVariables.set('withdrawTransactionId', json.id);",
+                  "console.log('Open this URL to complete KYC:');",
+                  "console.log(json.url);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{AUTH_TOKEN}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json", "type": "text" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asset_code\": \"{{ASSET_CODE}}\",\n  \"account\": \"{{crossmintWalletAddress}}\",\n  \"amount\": \"{{AMOUNT}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{ANCHOR_BASE_URL}}/sep24/transactions/withdraw/interactive",
+              "host": ["{{ANCHOR_BASE_URL}}"],
+              "path": ["sep24", "transactions", "withdraw", "interactive"]
+            },
+            "description": "Starts an interactive withdrawal. Open the returned URL to complete KYC; the anchor then waits for the wallet to send USDC."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Withdraw Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status returns 200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json().transaction;",
+                  "console.log('Withdraw status: ' + (t && t.status));",
+                  "",
+                  "if (t && t.status === 'pending_user_transfer_start') {",
+                  "  pm.collectionVariables.set('withdrawAnchorAccount', t.withdraw_anchor_account || '');",
+                  "  const parts = String(t.amount_in || '0').split('.');",
+                  "  const frac7 = ((parts[1] || '') + '0000000').slice(0, 7);",
+                  "  const stroops = BigInt(parts[0] + frac7).toString();",
+                  "  pm.collectionVariables.set('withdrawAmountStroops', stroops);",
+                  "  if (t.withdraw_memo) {",
+                  "    pm.collectionVariables.set('withdrawMemo', t.withdraw_memo);",
+                  "    pm.collectionVariables.set('withdrawMemoType', t.withdraw_memo_type || 'text');",
+                  "  } else {",
+                  "    pm.collectionVariables.set('withdrawMemo', '');",
+                  "  }",
+                  "  console.log('Anchor account: ' + t.withdraw_anchor_account + ' | amount(stroops): ' + stroops + ' | memo: ' + (t.withdraw_memo || '(none)'));",
+                  "  pm.test('Ready to send payment', () => pm.expect(t.withdraw_anchor_account, 'withdraw_anchor_account').to.be.a('string'));",
+                  "} else {",
+                  "  console.log('Not ready yet - complete the KYC webview, then re-send until status is \"pending_user_transfer_start\".');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{AUTH_TOKEN}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ANCHOR_BASE_URL}}/sep24/transaction?id={{withdrawTransactionId}}",
+              "host": ["{{ANCHOR_BASE_URL}}"],
+              "path": ["sep24", "transaction"],
+              "query": [{ "key": "id", "value": "{{withdrawTransactionId}}" }]
+            },
+            "description": "Polls the withdrawal. When status is pending_user_transfer_start, it captures the anchor account, amount (converted to stroops), and memo for the payment step."
+          },
+          "response": []
+        },
+        {
+          "name": "Send USDC to Anchor",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = {",
+                  "  params: {",
+                  "    transaction: {",
+                  "      type: 'contract-call',",
+                  "      contractId: pm.collectionVariables.get('USDC_CONTRACT_ID'),",
+                  "      method: 'transfer',",
+                  "      args: {",
+                  "        from: pm.collectionVariables.get('crossmintWalletAddress'),",
+                  "        to: pm.collectionVariables.get('withdrawAnchorAccount'),",
+                  "        amount: pm.collectionVariables.get('withdrawAmountStroops')",
+                  "      }",
+                  "    }",
+                  "  }",
+                  "};",
+                  "const memo = pm.collectionVariables.get('withdrawMemo');",
+                  "if (memo) {",
+                  "  body.params.transaction.memo = { type: pm.collectionVariables.get('withdrawMemoType') || 'text', value: memo };",
+                  "}",
+                  "pm.variables.set('crossmintTxBody', JSON.stringify(body));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Transaction created', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "  pm.collectionVariables.set('crossmintTransactionId', json.id);",
+                  "  console.log('Crossmint transaction: ' + json.id + ' (status: ' + json.status + ')');",
+                  "}",
+                  "// Capture the pending approval (external-wallet must sign the transfer).",
+                  "const pending = json && json.approvals && json.approvals.pending && json.approvals.pending[0];",
+                  "if (pending) {",
+                  "  pm.collectionVariables.set('txPendingMessage', pending.message);",
+                  "  pm.collectionVariables.set('txSignerLocator', pending.signer.locator);",
+                  "  console.log('Transaction needs approval - run Approve Transaction next.');",
+                  "} else {",
+                  "  console.log('No pending approval on the transaction (status: ' + (json && json.status) + '). You can skip Approve Transaction.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{CROSSMINT_API_KEY}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{crossmintTxBody}}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{CROSSMINT_BASE_URL}}/api/2025-06-09/wallets/{{crossmintWalletAddress}}/transactions",
+              "host": ["{{CROSSMINT_BASE_URL}}"],
+              "path": ["api", "2025-06-09", "wallets", "{{crossmintWalletAddress}}", "transactions"]
+            },
+            "description": "Creates a contract-call (transfer) on the USDC SAC to send USDC from the smart wallet to the anchor's withdraw account. The body is built in the pre-request from values captured in Get Withdraw Status (memo only when the anchor requires one). With an external-wallet signer the response includes a pending approval to sign."
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Transaction",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "packages": { "npm:stellar-sdk": { "id": "npm:stellar-sdk" } },
+                "exec": [
+                  "// Sign the transaction preimage locally with the external-wallet keypair.",
+                  "const StellarSdk = pm.require('npm:stellar-sdk');",
+                  "const seed = pm.collectionVariables.get('SIGNER_SEED');",
+                  "let rawSeed;",
+                  "try {",
+                  "  rawSeed = StellarSdk.hash(Buffer.from(seed, 'utf8'));",
+                  "} catch (e) {",
+                  "  const CryptoJS = require('crypto-js');",
+                  "  rawSeed = Buffer.from(CryptoJS.SHA256(CryptoJS.enc.Utf8.parse(seed)).toString(CryptoJS.enc.Hex), 'hex');",
+                  "}",
+                  "const keypair = StellarSdk.Keypair.fromRawEd25519Seed(rawSeed);",
+                  "const message = pm.collectionVariables.get('txPendingMessage');",
+                  "if (!message) { console.log('No txPendingMessage - run Send USDC to Anchor first (or the tx needs no approval).'); }",
+                  "const signatureB64 = message ? Buffer.from(keypair.sign(Buffer.from(message, 'base64'))).toString('base64') : '';",
+                  "const body = { approvals: [{ signer: pm.collectionVariables.get('txSignerLocator'), signature: signatureB64 }] };",
+                  "pm.variables.set('txApprovalBody', JSON.stringify(body));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Approval accepted', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "console.log('Transaction approval submitted. Poll Get Crossmint Transaction until success.');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{CROSSMINT_API_KEY}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{txApprovalBody}}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{CROSSMINT_BASE_URL}}/api/2025-06-09/wallets/{{crossmintWalletAddress}}/transactions/{{crossmintTransactionId}}/approvals",
+              "host": ["{{CROSSMINT_BASE_URL}}"],
+              "path": ["api", "2025-06-09", "wallets", "{{crossmintWalletAddress}}", "transactions", "{{crossmintTransactionId}}", "approvals"]
+            },
+            "description": "Signs the transaction preimage locally with the external-wallet keypair (pre-request) and submits the approval. Skip this if Send USDC to Anchor returned no pending approval."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Crossmint Transaction",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "console.log('Crossmint tx status: ' + json.status);",
+                  "if (json.onChain && json.onChain.txId) console.log('On-chain tx: ' + json.onChain.txId);",
+                  "// If still awaiting approval, capture the pending message so Approve Transaction can sign it.",
+                  "const pending = json.approvals && json.approvals.pending && json.approvals.pending[0];",
+                  "if (pending) {",
+                  "  pm.collectionVariables.set('txPendingMessage', pending.message);",
+                  "  pm.collectionVariables.set('txSignerLocator', pending.signer.locator);",
+                  "}",
+                  "if (json.status === 'failed') {",
+                  "  pm.test('Transaction did not fail', () => pm.expect(json.status, JSON.stringify(json.error)).to.not.eql('failed'));",
+                  "} else {",
+                  "  pm.test('Transaction success (re-send if pending)', () => pm.expect(json.status).to.eql('success'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{CROSSMINT_API_KEY}}", "type": "text" }],
+            "url": {
+              "raw": "{{CROSSMINT_BASE_URL}}/api/2025-06-09/wallets/{{crossmintWalletAddress}}/transactions/{{crossmintTransactionId}}",
+              "host": ["{{CROSSMINT_BASE_URL}}"],
+              "path": ["api", "2025-06-09", "wallets", "{{crossmintWalletAddress}}", "transactions", "{{crossmintTransactionId}}"]
+            },
+            "description": "Polls the Crossmint transaction. Re-send until status is success. Then re-send Get Withdraw Status to watch the anchor mark the withdrawal completed."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "CROSSMINT_BASE_URL", "value": "https://staging.crossmint.com" },
+    { "key": "CROSSMINT_API_KEY", "value": "" },
+    { "key": "SIGNER_SEED", "value": "" },
+    { "key": "ANCHOR_BASE_URL", "value": "https://testanchor.stellar.org" },
+    { "key": "HOME_DOMAIN", "value": "testanchor.stellar.org" },
+    { "key": "ASSET_CODE", "value": "USDC" },
+    { "key": "AMOUNT", "value": "15" },
+    { "key": "USDC_CONTRACT_ID", "value": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA" },
+    { "key": "CLIENT_DOMAIN", "value": "" },
+    { "key": "CLIENT_DOMAIN_SIGNER_SEED", "value": "" },
+    { "key": "WALLET_IDEMPOTENCY_KEY", "value": "" },
+    { "key": "crossmintWalletAddress", "value": "" },
+    { "key": "challengeAuthorizationEntries", "value": "" },
+    { "key": "signatureId", "value": "" },
+    { "key": "pendingMessage", "value": "" },
+    { "key": "signerLocator", "value": "" },
+    { "key": "signedEntriesArray", "value": "" },
+    { "key": "AUTH_TOKEN", "value": "" },
+    { "key": "depositTransactionId", "value": "" },
+    { "key": "withdrawTransactionId", "value": "" },
+    { "key": "withdrawAnchorAccount", "value": "" },
+    { "key": "withdrawAmountStroops", "value": "" },
+    { "key": "withdrawMemo", "value": "" },
+    { "key": "withdrawMemoType", "value": "" },
+    { "key": "crossmintTransactionId", "value": "" },
+    { "key": "txPendingMessage", "value": "" },
+    { "key": "txSignerLocator", "value": "" }
+  ]
+}
